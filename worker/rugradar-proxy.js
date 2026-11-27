@@ -5,7 +5,7 @@
 // Routes:
 //   POST /rpc            -> Helius mainnet RPC (key disembunyikan server-side)
 //   GET  /rugcheck/<mint> -> RugCheck report (insider networks)
-//   GET  /jupiter/quote?... -> Jupiter Quote API v6 (sellability check)
+//   GET  /jupiter/quote?... -> Jupiter Swap API V1 lite (sellability check)
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -55,12 +55,14 @@ export default {
       });
     }
 
-    // GET /jupiter/quote?... -> Jupiter Quote API v6 (sellability check).
+    // GET /jupiter/quote?... -> Jupiter Swap API V1 lite (sellability check).
     // Query string passed through untouched; the browser calls the Worker
-    // instead of quote-api.jup.ag directly to avoid CORS/timeouts.
+    // instead of lite-api.jup.ag directly to avoid CORS/timeouts.
+    // (The old v6 Quote API is sunset/dead; V1 lite is its replacement —
+    // the response is a top-level quote object, no data wrapper.)
     if (url.pathname === "/jupiter/quote" && request.method === "GET") {
       const res = await fetch(
-        `https://quote-api.jup.ag/v6/quote${url.search}`
+        `https://lite-api.jup.ag/swap/v1/quote${url.search}`
       );
       return new Response(await res.text(), {
         status: res.status,
