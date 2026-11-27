@@ -22,6 +22,11 @@
   --btn-bg: #0f172a;
   --btn-bg-hover: #1e293b;
   --btn-text: #ffffff;
+  /* v7.10.1 — the primary Scan button is indigo (the brand accent),
+   * not the theme-neutral navy: #4f46e5 + white text = 6.3:1 contrast. */
+  --btn-primary-bg: #4f46e5;
+  --btn-primary-bg-hover: #4338ca;
+  --btn-primary-text: #ffffff;
   --focus: #0f172a;
   --focus-ring: rgba(15, 23, 42, 0.12);
   --green: #16a34a;
@@ -68,6 +73,12 @@
   --btn-bg: #e2e8f0;
   --btn-bg-hover: #ffffff;
   --btn-text: #0f172a;
+  /* v7.10.1 — the primary Scan button is indigo in dark mode too:
+   * #818cf8 with dark navy text = 5.9:1 contrast (white text on
+   * #818cf8 would be only ~3:1). */
+  --btn-primary-bg: #818cf8;
+  --btn-primary-bg-hover: #a5b4fc;
+  --btn-primary-text: #0f172a;
   --focus: #93c5fd;
   --focus-ring: rgba(147, 197, 253, 0.25);
   --green: #22c55e;
@@ -228,22 +239,23 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
-/* Primary action is dark navy in light mode and a light button in dark
- * mode; the brand accent (--accent, indigo) is the logo word "Radar" —
- * red stays exclusive to danger signals. */
+/* v7.10.1 — the primary Scan button is indigo in both themes (the
+ * brand accent, --btn-primary-bg); the theme-neutral --btn-bg stays for
+ * the lang toggle and other neutral buttons. Red stays exclusive to
+ * danger signals. */
 .btn-primary {
   padding: 12px 20px;
   font-size: 15px;
   font-weight: 700;
-  color: var(--btn-text);
-  background: var(--btn-bg);
+  color: var(--btn-primary-text);
+  background: var(--btn-primary-bg);
   border: none;
   border-radius: 10px;
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.15s ease, transform 0.15s ease;
 }
-.btn-primary:hover:not(:disabled) { background: var(--btn-bg-hover); }
+.btn-primary:hover:not(:disabled) { background: var(--btn-primary-bg-hover); }
 .btn-primary:active:not(:disabled) { transform: scale(0.98); }
 .btn-primary:disabled { opacity: 0.6; cursor: default; }
 
@@ -471,7 +483,7 @@ a:focus-visible {
 .verdict-warn { background: var(--amber-bg); border: 1px solid var(--amber-border); color: var(--amber-text); }
 .verdict-danger { background: var(--red-bg); border: 1px solid var(--red-border); color: var(--red-dark); }
 .hero-gauge { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; }
-.hero-verdict { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.hero-verdict { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .hero-verdict-label {
   font-family: var(--font-display);
   font-size: 28px;

@@ -618,12 +618,20 @@ export default function App() {
   const ratioText =
     result == null || displayRatioPct == null ? '—' : fmtPct(displayRatioPct);
 
-  // v7.10 (UI 7) — failed checks first, so a judge scanning a red token
-  // sees the reason immediately; stable within a status (Array.sort is
-  // stable). Used by the check list and the copied text alike.
+  // v7.10.1 (UI 7b) — failed checks first, and within a status group
+  // the biggest point loss leads, so a judge scanning a red token sees
+  // the reason immediately: for PYUSD the Token-2022 DANGER card (−35)
+  // now leads, then Holder (−30), then Mint/Freeze (−20 each, stable
+  // order). Unscored checks lose 0 points, so they sort after scored
+  // ones in their group. Stable otherwise (Array.sort is stable).
+  // Used by the check list and the copied text alike.
   const CHECK_RANK: Record<string, number> = { fail: 0, warn: 1, pass: 2, info: 3, na: 4 };
   const sortedChecks = result
-    ? [...result.checks].sort((a, b) => CHECK_RANK[a.status] - CHECK_RANK[b.status])
+    ? [...result.checks].sort(
+        (a, b) =>
+          CHECK_RANK[a.status] - CHECK_RANK[b.status] ||
+          (b.maxScore - b.score) - (a.maxScore - a.score),
+      )
     : [];
 
   function relativeUpdated(scannedAt: string): string {
