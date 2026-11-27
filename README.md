@@ -2,10 +2,35 @@
 
 **Dev3pack Global Hackathon 2026 · Solo entry · Yukka Aulia**
 
-Tempel alamat mint token Solana → dapatkan skor risiko rug 0–100, verdict
-**Aman / Waspada / Berisiko Tinggi**, dan rincian per pemeriksaan — dalam
-hitungan detik, langsung di browser. Semua data dibaca dari sumber publik
-dan read-only; tidak ada wallet, tidak ada transaksi, tidak ada API key.
+**Penerjemah risiko 3 detik.** Korban rug pull biasanya bukan tidak peduli
+keamanan — mereka kalah cepat oleh FOMO dan tidak paham istilah teknis
+seperti Permanent Delegate, LP lock, atau dev bundle. RugRadar merangkum
+belasan parameter kontrak dan likuiditas menjadi **vonis 2 kalimat dalam
+bahasa manusia (Bahasa Indonesia & Inggris)** dalam hitungan detik, tepat
+sebelum trader menekan tombol buy.
+
+Tempel alamat mint token Solana → dapatkan skor keamanan 0–100, verdict
+**Aman / Waspada / Berisiko Tinggi**, dan rincian per pemeriksaan — langsung
+di browser. Semua data dibaca dari sumber publik dan read-only; tidak ada
+wallet, tidak ada transaksi. Data on-chain dibaca lewat proxy Cloudflare
+Workers (API key Helius disimpan server-side sebagai Worker secret — bundle
+publik tidak mengandung key); bila proxy tidak terjangkau, aplikasi fallback
+ke RPC publik.
+
+Demo live: https://dadapy04.github.io/rugradar/
+
+## Coba sendiri (kontras hijau vs merah)
+
+| Token | Mint | Skor | Verdict |
+|---|---|---|---|
+| BONK | `DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263` | 81 | Aman |
+| WIF | `EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm` | 88 | Aman |
+| POPCAT | `7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr` | 88 | Aman |
+| PYUSD | `2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo` | 0 | Berisiko Tinggi |
+
+PYUSD adalah contoh merah yang paling jelas: token Token-2022 dengan
+Permanent Delegate aktif — developer bisa mencetak dan membekukan token
+siapa pun. Skor 0/100, dan ringkasan langsung menyebut flag fatalnya.
 
 ## Cara menjalankan
 
@@ -34,6 +59,13 @@ npx tsx scripts/test-scan.ts BONK       # satu token saja
 
 **Verdict:** ≥80 Aman · 50–79 Waspada · <50 Berisiko Tinggi.
 
+**Penalti Token-2022 (maks −35, skor tidak pernah di bawah 0):**
+Permanent Delegate −15, Transfer Fee −10, Transfer Hook −10.
+
+**Aturan fail-safe:** kalau data holder tidak bisa dibaca, skor holder
+diberi nilai netral 15/30 dan total skor dibatasi maksimal 79 — tidak ada
+token yang lolos sebagai "Aman" berdasarkan data yang belum terverifikasi.
+
 ## Arsitektur
 
 ```
@@ -41,41 +73,69 @@ src/
   lib/scanner.ts   # seluruh logika: RPC + DexScreener + scoring (tanpa React)
   App.tsx          # UI: input, gauge skor, kartu statistik, daftar cek
   App.css          # styling responsif (mobile-friendly)
+worker/
+  rugradar-proxy.js  # Cloudflare Worker: /rpc, /rugcheck, /jupiter/quote
 scripts/
   test-scan.ts     # CLI test runner, memakai scanToken() yang sama dengan UI
+programs/
+  rugradar-registry/  # program Anchor (devnet): mencatat hasil scan on-chain
 ```
 
+**Kenapa ada proxy Cloudflare Workers (`worker/rugradar-proxy.js`)?**
+RPC publik Solana membatasi method tertentu (`getTokenLargestAccounts`
+diblokir: mainnet-beta 429, publicnode "Request blocked", Ankr 403) dan
+API key tidak boleh bocor ke bundle publik. Worker adalah pipa tipis yang
+meneruskan tiga hal: `POST /rpc` → Helius (key sebagai Worker secret),
+`GET /rugcheck/<mint>` → RugCheck API, `GET /jupiter/quote` → Jupiter
+Swap API v1 (lite-api). Scoring tetap 100% client-side di repo publik ini.
+
 **Alur satu pemindaian (`scanToken`):**
-1. **On-chain** — `getParsedAccountInfo` pada mint: supply, decimals,
-   mint authority, freeze authority. RPC dicoba berurutan:
+1. **On-chain** — `getAccountInfo` (jsonParsed) pada mint: supply, decimals,
+   mint authority, freeze authority. Dipanggil lewat JSON-RPC mentah dengan
+   timeout 10 detik dan tanpa retry; proxy Cloudflare dicoba pertama
+   (meneruskan ke Helius), lalu RPC publik:
    `api.mainnet-beta.solana.com` → `solana.publicnode.com` →
    `ssc-dao.genesysgo.net`.
-2. **Konsentrasi holder** — `getTokenLargestAccounts` (top-10 + top-1)
-   dibagi total supply. Dipanggil via JSON-RPC mentah dengan timeout 10
-   detik dan tanpa retry, supaya satu method yang diblokir tidak menggantung
-   seluruh scan.
-3. **Pasar** — DexScreener public API
+2. **Token-2022** — ekstensi berbahaya dibaca dari layout TLV akun mint:
+   Permanent Delegate, Transfer Fee, Transfer Hook.
+3. **Konsentrasi holder** — `getTokenLargestAccounts` (top-10 + top-1)
+   dibagi total supply. Dompet exchange terverifikasi (Binance, Coinbase,
+   OKX, Kraken, Bybit) dikeluarkan dari top-10.
+4. **Dev bundle (hanya pair < 7 hari)** — dua sinyal independen:
+   heuristik RPC (≥4 dompet membeli di satu slot peluncuran yang sama,
+   gabungan >15% suplai) dan jaringan insider RugCheck (>15% suplai).
+   Token yang dicurigai bundle dibatasi skor maksimal 79. Token tua tidak
+   diperiksa — hemat RPC, tanpa false positive.
+5. **Pasar** — DexScreener public API
    (`/latest/dex/tokens/{mint}`, tanpa key): pair dengan likuiditas
    tertinggi → harga, market cap, likuiditas USD, volume 24j, umur pool,
    nama/symbol token.
-4. **Scoring** — tiap cek diberi poin + status pass/warn/fail + penjelasan
-   Bahasa Indonesia yang bisa dipahami pemula.
+6. **Sellability (informatif, di luar 100 poin)** — simulasi jual ~$1
+   token ke SOL lewat Jupiter Swap API v1 (lite-api). Ada rute = bisa
+   dijual; tidak ada rute = kemungkinan honeypot.
+7. **Ringkasan risiko (rule-based, tanpa AI)** — mesin aturan prioritas
+   menulis vonis 2–3 kalimat dari flag terberat (honeypot, Permanent
+   Delegate, mint/freeze aktif, top-1 >50%, LP belum dibakar). Latensi
+   0 ms, gratis, konsisten — tanpa ketergantungan API AI yang lambat.
 
 Kegagalan satu sumber data tidak menggagalkan scan: cek yang datanya tidak
-didapat dilaporkan sebagai "data tidak tersedia" (warn, 0 poin).
+didapat dilaporkan sebagai "data tidak tersedia" (bukan lolos diam-diam).
+
+**Program Scan Registry (devnet):** hasil scan bisa dicatat on-chain
+lewat program Anchor `record_scan` (PDA per mint + scanner). Program
+address: `AdyPd6VJETKJTotVTYPPKBZKB3CeVaUpqiC3L9FKPNeR`.
 
 ## Keterbatasan yang diketahui (jujur, bukan disembunyikan)
 
-- **`getTokenLargestAccounts` diblokir/dibatasi di semua RPC publik gratis
-  yang diuji** (mainnet-beta: HTTP 429 khusus method ini; publicnode:
-  "Request blocked"; Ankr publik: 403; GenesysGo: tidak menjawab).
-  Akibatnya, pada tes 27 Nov 2026 ketiga token mendapat 0/30 untuk cek
-  konsentrasi holder dan skor totalnya 63–70 (Waspada) — padahal authority
-  dan likuiditasnya lolos. Dengan data holder dari scanner independen
-  (Codeflex, 25–26 Nov 2026: BONK top-10 30,4%, WIF 33,1%, POPCAT 38,4%),
-  ketiganya akan mendapat +18 poin → **81–88 (Aman)**. Lihat
-  `TEST-RESULTS.md`. Perbaikan termudah: RPC dedicated (mis. Helius free
-  tier) — tidak dipakai di sini supaya tetap tanpa API key.
+- **Data holder tidak selalu bisa dibaca** (lihat fail-safe di atas:
+  netral 15/30 + cap 79). Rescan biasanya memperbaiki karena penyebabnya
+  fluktuasi rate limit, bukan data tokennya.
+- **"LP dibakar/dikunci" hanya mengukur incinerator.** LP yang dikunci di
+  program lock belum terdeteksi, jadi teks kartu LP tidak pernah mengklaim
+  persentase bakar — yang dilaporkan hanya risiko sisa pemegang LP terbesar.
+- **Vault AMM PumpSwap belum dikecualikan** dari konsentrasi holder
+  (vault Raydium sudah). Token yang likuiditasnya masih di PumpSwap bisa
+  terlihat lebih terkonsentrasi dari kenyataannya.
 - Harga token sangat kecil (mis. BONK ~$0,000002) ditampilkan dengan 3
   angka signifikan.
 - Skor ini alat bantu screening, bukan nasihat keuangan dan bukan jaminan
@@ -86,4 +146,23 @@ didapat dilaporkan sebagai "data tidak tersedia" (warn, 0 poin).
 - TypeScript + Vite + React 19
 - `@solana/web3.js` (baca mint account)
 - DexScreener public API (data pasar, tanpa key)
-- Tanpa program on-chain, tanpa wallet, tanpa API key, tanpa backend.
+- RugCheck public API (jaringan insider, tanpa key)
+- Jupiter Swap API v1 / lite-api (cek sellability, tanpa key)
+- Cloudflare Workers (proxy RPC + RugCheck + Jupiter; key server-side)
+- Anchor (program Scan Registry, devnet)
+
+## Roadmap (setelah hackathon)
+
+Mesin analisisnya sudah terisolasi di Cloudflare Worker, jadi saluran baru
+tinggal menyambung ke API yang sama — tanpa mengubah mesin skornya:
+
+1. **Telegram Group Bot** — bot masuk ke grup call/sinyal; begitu ada
+   yang melempar contract address, bot membalas otomatis dalam ~2 detik
+   berisi skor + vonis 2 kalimat + tautan laporan detail
+   (`rugradar/?mint=...`). Trader tidak perlu pindah aplikasi.
+2. **Browser Extension** — peringatan otomatis saat contract address
+   muncul di X atau Telegram Web.
+3. **Pemantauan real-time** — setelah ada pengguna harian yang rutin
+   memakai inti produk (bukan sebelum itu).
+
+Lihat `TEST-RESULTS.md` untuk hasil tes kunci per versi.
