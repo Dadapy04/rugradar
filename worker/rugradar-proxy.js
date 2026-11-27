@@ -5,6 +5,7 @@
 // Routes:
 //   POST /rpc            -> Helius mainnet RPC (key disembunyikan server-side)
 //   GET  /rugcheck/<mint> -> RugCheck report (insider networks)
+//   GET  /jupiter/quote?... -> Jupiter Quote API v6 (sellability check)
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -47,6 +48,19 @@ export default {
     if (rc && request.method === "GET") {
       const res = await fetch(
         `https://api.rugcheck.xyz/v1/tokens/${rc[1]}/report`
+      );
+      return new Response(await res.text(), {
+        status: res.status,
+        headers: { "Content-Type": "application/json", ...CORS },
+      });
+    }
+
+    // GET /jupiter/quote?... -> Jupiter Quote API v6 (sellability check).
+    // Query string passed through untouched; the browser calls the Worker
+    // instead of quote-api.jup.ag directly to avoid CORS/timeouts.
+    if (url.pathname === "/jupiter/quote" && request.method === "GET") {
+      const res = await fetch(
+        `https://quote-api.jup.ag/v6/quote${url.search}`
       );
       return new Response(await res.text(), {
         status: res.status,
