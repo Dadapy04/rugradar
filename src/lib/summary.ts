@@ -158,7 +158,10 @@ export function buildRiskSummary(r: ScanResult, lang: Lang): string {
     const sentences = [`${opener}${deep}.`];
     if (r.top1SharePct != null && r.top1SharePct >= 10)
       sentences.push(t.summaryTop1Note(fmtPct(r.top1SharePct)));
-    sentences.push(t.summaryPriceReminder);
+    // v7.12.3 — no second DYOR line when the verdict is Aman: the verdict
+    // text itself already says "Still DYOR — a score is not a guarantee".
+    // Waspada/Berisiko keep the reminder (their verdict text has none).
+    if (r.verdict !== 'Aman') sentences.push(t.summaryPriceReminder);
     return appendHoldersNote(sentences.join(' '), r, t);
   }
 
@@ -169,11 +172,16 @@ export function buildRiskSummary(r: ScanResult, lang: Lang): string {
     t.summaryAnd,
   )}.`;
   const strongTop = top.find((f) => f.strong);
+  // v7.12.3 — same dedup as the all-green branch: when the verdict is
+  // Aman the verdict text already carries the DYOR line, so the summary
+  // ends after the flags instead of repeating the reminder.
   const s2 =
     strongTop?.kind === 'noMarket'
       ? t.summaryNoMarketConsequence
       : strongTop
         ? t.summaryMarketConsequence
-        : t.summaryPriceReminder;
-  return appendHoldersNote(`${s1} ${s2}`, r, t);
+        : r.verdict === 'Aman'
+          ? ''
+          : t.summaryPriceReminder;
+  return appendHoldersNote(s2 ? `${s1} ${s2}` : s1, r, t);
 }

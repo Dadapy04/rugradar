@@ -16,6 +16,11 @@ const VERDICT_CLASS: Record<Verdict, string> = {
   'Berisiko Tinggi': 'verdict-danger',
 };
 
+/** v7.12.3 — short mint display for narrow screens: 7GCihg…YmW2hr. */
+function shortMint(mint: string): string {
+  return mint.length > 12 ? `${mint.slice(0, 6)}…${mint.slice(-4)}` : mint;
+}
+
 function verdictLabel(v: Verdict, t: Dict): string {
   return v === 'Aman' ? t.verdictAman : v === 'Waspada' ? t.verdictWaspada : t.verdictBerisiko;
 }
@@ -1301,7 +1306,10 @@ export default function App() {
                     <span className="symbol">({upperSymbol(result.symbol)})</span>
                   </h2>
                   <p className="mint-line">
-                    <code>{result.mint}</code>
+                    <code className="mint-full">{result.mint}</code>
+                    <code className="mint-short" title={result.mint}>
+                      {shortMint(result.mint)}
+                    </code>
                     <button
                       type="button"
                       className="mint-copy"
@@ -1743,7 +1751,7 @@ export default function App() {
         </p>
         <p>{t.footerDisclaimer}</p>
         {/* v7.10 (B9) — build label, so a bug report can be tied to a version. */}
-        <p className="version">RugRadar v7.12.2</p>
+        <p className="version">RugRadar v7.12.3</p>
       </footer>
 
       {methodOpen && (

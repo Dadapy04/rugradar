@@ -1664,3 +1664,12 @@ Enam fitur yang diminta Yukka ("kenapa ga semuanya?"), dikerjakan berurutan. Foo
 - `npm run build` (tsc -b + vite, strict) **LOLOS**. Bundle baru `dist/assets/index-C6jQu_lz.js`; `btn-glow` terkonfirmasi di CSS; `RugRadar v7.12.2` ada; **0 `helius-rpc.com`**.
 - Keyed test: BONK / WIF / POPCAT / PYUSD (lihat output di atas — harus 79–81/88/88/0; BONK goyang 79–81 karena volume di sekitar $100K).
 - Deploy v7.12.2 via subagent (teks saja), live check + tes HP Yukka masih menunggu — BUKAN final sampai Yukka ngetes sendiri dari HP.
+
+## v7.12.3 — 3 polesan dari tes HP Yukka (28 Nov ~14:06 WIB, build lokal Bella)
+- 1) Sticky scan bar di mobile DIMATIKAN (aturan `position: sticky` ≤560px dari v7.10 dihapus — di HP memakan ~1/3 layar saat scroll ke hasil; bar kini statis di semua ukuran, ruang hasil scan lebih lega untuk video demo).
+- 2) Alamat mint di hasil scan: layar sempit kini tampil format singkat `7GCihg…YmW2hr` (helper `shortMint`, 6 awal + 4 akhir, alamat penuh di tooltip `title`); desktop tetap alamat penuh. Tombol salin tetap menyalin alamat penuh.
+- 3) Disclaimer ganda di kotak Aman dihapus: ringkasan risiko tidak lagi mengulang pengingat "Remember: this score rates the contract…" saat verdict Aman — teks verdict-nya sendiri sudah bilang "Still DYOR — a score is not a guarantee". Waspada/Berisiko tetap menyimpan pengingat itu (teks verdict mereka tidak punya kalimat DYOR).
+- Verifikasi ringkasan (live + sintetis): POPCAT 88 Aman → ringkasan berakhir setelah flag LP, tanpa pengingat ✓; BONK 81 Aman → berakhir setelah flag metadata ✓; ChokingCat 77 Waspada → jalur konsekuensi kuat tak berubah ✓; PYUSD 0 Berisiko Tinggi → jalur fatal tak berubah ✓; sintetis 4 kasus (Aman/Waspada × bersih/flag ringan) semua sesuai — pengingat hanya muncul di Waspada ✓.
+- `npm run build` (tsc -b + vite, strict) **LOLOS**. Bundle baru `dist/assets/index-BB_dbhou.js`; `mint-short` terkonfirmasi di CSS; `RugRadar v7.12.3` ada; **0 `helius-rpc.com`**.
+- Keyed test: BONK 81 Aman / WIF 88 / POPCAT 88 / PYUSD 0 (BONK kembali 81 — volume di atas $100K).
+- Deploy v7.12.3 via subagent (teks saja), live check + tes HP Yukka masih menunggu — BUKAN final sampai Yukka ngetes sendiri dari HP.
