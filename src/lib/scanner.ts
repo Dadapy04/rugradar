@@ -141,6 +141,10 @@ export interface ScanResult {
 }
 
 export interface DexPair {
+  /** Chain the pair lives on — the search endpoint returns pairs from every
+   *  chain, so search hits are filtered to Solana (absent on /tokens/
+   *  responses, which are already Solana-only). */
+  chainId?: string;
   liquidity?: { usd?: number };
   volume?: { h24?: number };
   priceUsd?: string;
@@ -2010,6 +2014,153 @@ export async function checkLpUnlocks(
   return parseLpLockers(json.lockers);
 }
 
+// ---------- v7.14 — symbol search & sell-size simulation ----------
+// Two gaps the scan itself cannot close: traders often hold the TICKER, not
+// the mint address, and the honeypot probe only proves a $1 route exists —
+// not what a real-size exit costs. Both stay client-side and key-free.
+
+export interface DexSearchHit {
+  mint: string;
+  name: string;
+  symbol: string;
+  logoUrl: string | null;
+  /** Aggregate liquidity across every Solana pair of this mint. */
+  liquidityUsd: number | null;
+  /** Aggregate 24h volume across every Solana pair of this mint. */
+  volume24hUsd: number | null;
+  pairUrl: string | null;
+}
+
+/** Look a token up by ticker or name ("WIF", "bonk") via the DexScreener
+ *  public search endpoint. Only pairs whose BASE token matches the query
+ *  are kept — a search for "WIF" must never return every token merely
+ *  quoted in WIF — and the results are collapsed to one row per mint,
+ *  deepest liquidity first. Returns [] for no match; throws only when the
+ *  API itself fails, which the caller reports as "search unavailable". */
+export async function searchDexTokens(query: string): Promise<DexSearchHit[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8_000);
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(q)}`,
+      { headers: { Accept: 'application/json' }, signal: ctrl.signal },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) throw new Error(`DexScreener search HTTP ${res.status}`);
+  const json = (await res.json()) as { pairs?: DexPair[] };
+  const needle = q.toLowerCase().replace(/^\$/, '');
+  const byMint = new Map<string, DexSearchHit>();
+  for (const p of json.pairs ?? []) {
+    if ((p.chainId ?? 'solana') !== 'solana') continue;
+    const mint = p.baseToken?.address;
+    if (!mint || NUMERAIRE_MINTS.has(mint)) continue;
+    const symbol = (p.baseToken?.symbol ?? '').toLowerCase().replace(/^\$/, '');
+    const name = (p.baseToken?.name ?? '').toLowerCase();
+    if (!symbol.includes(needle) && !name.includes(needle)) continue;
+    const liq = p.liquidity?.usd ?? null;
+    const vol = p.volume?.h24 ?? null;
+    const prev = byMint.get(mint);
+    if (!prev) {
+      byMint.set(mint, {
+        mint,
+        name: p.baseToken?.name ?? '?',
+        symbol: p.baseToken?.symbol ?? '???',
+        logoUrl: p.info?.imageUrl ?? null,
+        liquidityUsd: liq,
+        volume24hUsd: vol,
+        pairUrl: p.url ?? null,
+      });
+    } else {
+      if (liq != null) prev.liquidityUsd = (prev.liquidityUsd ?? 0) + liq;
+      if (vol != null) prev.volume24hUsd = (prev.volume24hUsd ?? 0) + vol;
+      if (!prev.logoUrl && p.info?.imageUrl) prev.logoUrl = p.info.imageUrl;
+      if (!prev.pairUrl && p.url) prev.pairUrl = p.url;
+    }
+  }
+  return [...byMint.values()]
+    .sort((a, b) => (b.liquidityUsd ?? 0) - (a.liquidityUsd ?? 0))
+    .slice(0, 8);
+}
+
+export interface SellSim {
+  amountUsd: number;
+  /** % of the trade lost to price impact (Jupiter's priceImpactPct × 100) —
+   *  null when Jupiter did not report it. */
+  impactPct: number | null;
+  /** SOL the route returns for the trade (null when outAmount was unreadable). */
+  outSol: number | null;
+}
+
+/** Quote a market sell of `amountUsd` worth of the token at its current
+ *  price, to answer the trader's real question: "if I sell $250 now, what
+ *  comes back?" The scan's honeypot probe is a fixed ~$1 route test and
+ *  says nothing about cost at a real size; this is run on demand, per size.
+ *  Returns null when there is no route or the API is unreachable — the
+ *  caller shows one neutral line for both, because a missing route is
+ *  already reported by the honeypot check itself. */
+export async function simulateSell(
+  mint: string,
+  decimals: number,
+  priceUsd: number | null,
+  amountUsd: number,
+): Promise<SellSim | null> {
+  if (priceUsd == null || priceUsd <= 0 || amountUsd <= 0) return null;
+  const tokens = Math.floor(amountUsd / priceUsd);
+  if (!Number.isFinite(tokens) || tokens < 1) return null;
+  // Integer token count × 10^decimals as BigInt: a $250 sell of a 9-decimal
+  // token priced at $1e-9 is 2.5e20 raw units — past Number.MAX_SAFE_INTEGER,
+  // so a float multiply would silently land on the wrong amount.
+  const amount = (BigInt(tokens) * 10n ** BigInt(decimals)).toString();
+  const query = `inputMint=${mint}&outputMint=${SOL_MINT}&amount=${amount}&slippageBps=100`;
+  const urls = [
+    `${PROXY_URL}/jupiter/quote?${query}`,
+    `https://lite-api.jup.ag/swap/v1/quote?${query}`,
+  ];
+  for (const url of urls) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10_000);
+      try {
+        const res = await fetch(url, {
+          headers: { Accept: 'application/json' },
+          signal: ctrl.signal,
+        });
+        if (res.ok) {
+          const json = (await res.json()) as {
+            outAmount?: unknown;
+            priceImpactPct?: unknown;
+          };
+          if (typeof json.outAmount !== 'string' && typeof json.outAmount !== 'number')
+            break; // malformed — try the next URL
+          const out = Number(json.outAmount);
+          const impact = Number(json.priceImpactPct);
+          return {
+            amountUsd,
+            // Jupiter reports priceImpactPct as a fraction (0.0034 = 0.34%).
+            impactPct: Number.isFinite(impact) ? impact * 100 : null,
+            // Wrapped SOL has 9 decimals: lamports → SOL.
+            outSol: Number.isFinite(out) ? out / 1e9 : null,
+          };
+        }
+        // A 400 means "no route" for this size — a real answer, and one the
+        // honeypot check already reports. Any other 4xx is a bad request a
+        // retry will not fix: move to the next URL either way.
+        if (res.status === 400 || (res.status !== 429 && res.status < 500)) break;
+      } catch {
+        // Network error / timeout — retry once, then move to the next URL.
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
+  return null;
+}
+
 export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise<ScanResult> {
   const t = STRINGS[lang];
   // Map a malformed address to the friendly translated message instead of
@@ -2253,7 +2404,11 @@ export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise
       : pair == null
         ? t.liquidityLostNoPair
         : [
-            liqParts.liq < 15 ? t.liqPartLow(fmtUsd(liquidityUsd, lang)) : null,
+            liqParts.liq < 15
+              ? isBondingCurve
+                ? t.liqPartBonding
+                : t.liqPartLow(fmtUsd(liquidityUsd, lang))
+              : null,
             liqParts.age < 8 && pairAgeDays != null
               ? t.agePartLow(`${Math.floor(pairAgeDays)} ${t.days}`)
               : null,

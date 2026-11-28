@@ -1,0 +1,33 @@
+name: CI
+
+# Verifikasi otomatis: build harus lolos, dan hasil scan token referensi
+# dicetak ke log supaya skor BONK / WIF / POPCAT / PYUSD bisa dibaca
+# apa adanya. Tes scan sengaja `continue-on-error` karena ia memanggil RPC
+# dan API publik yang hidup — gangguan jaringan bukan kegagalan kode.
+on:
+  push:
+    branches: ['freemilk/**', main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build + scan referensi
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Scan token referensi (data hidup, informatif)
+        continue-on-error: true
+        run: npx tsx scripts/test-scan.ts

@@ -172,6 +172,26 @@ export interface Dict {
   sellableWarn: string;
   sellableUnavailable: string;
   sellableExplanation: string;
+  // v7.14 — symbol/name search: a ticker typed instead of a mint address is
+  // looked up on DexScreener instead of only being rejected.
+  searchTitle: string;
+  searchSearching: string;
+  searchEmpty: (q: string) => string;
+  searchFailed: string;
+  // v7.14 — sell-size simulation: the price impact of selling a REAL amount
+  // (the honeypot probe is a fixed $1 route test and says nothing about cost).
+  sellSimTitle: string;
+  sellSimChecking: string;
+  sellSimResult: (amount: string, out: string, impact: string) => string;
+  sellSimFailed: string;
+  // v7.14 — Sederhana / Rinci view mode for the check list.
+  viewLabel: string;
+  viewSimple: string;
+  viewDetail: string;
+  viewShowAll: (n: string) => string;
+  // v7.14 — score trend over the saved scans of the token on screen.
+  historyTrendTitle: string;
+  historyTrendHint: (n: string) => string;
   // Lost-points reasons (one short line under a check that lost points)
   mintLostReason: string;
   freezeLostReason: string;
@@ -192,6 +212,9 @@ export interface Dict {
   bundleCapNote: string;
   liquidityLostNoPair: string;
   liqPartLow: (v: string) => string;
+  // v7.14 — bonding-curve pairs report liquidity: null, so the lost-points
+  // line must name the curve instead of printing "liquidity —".
+  liqPartBonding: string;
   agePartLow: (v: string) => string;
   volPartLow: (v: string) => string;
   // LP Burn/Lock check (informational)
@@ -501,6 +524,23 @@ export const STRINGS: Record<Lang, Dict> = {
       'Cek jual tidak bisa dijalankan saat ini (Jupiter tidak merespons) — ini bukan berarti token tidak bisa dijual, coba scan ulang.',
     sellableExplanation:
       'Cek ekstra (di luar skor 100): token honeypot bisa dibeli tapi tidak bisa dijual kembali. Kalau tidak ada rute jual, jangan beli.',
+    searchTitle: 'Token yang cocok — ketuk untuk memindai',
+    searchSearching: 'Mencari token…',
+    searchEmpty: (q) =>
+      `Tidak ada token yang cocok dengan "${q}". Tempel alamat mint-nya langsung.`,
+    searchFailed:
+      'Pencarian token tidak bisa dijalankan saat ini — tempel alamat mint langsung.',
+    sellSimTitle: 'Simulasi jual',
+    sellSimChecking: 'Menghitung rute jual…',
+    sellSimResult: (amount, out, impact) =>
+      `Jual ${amount} → dapat ${out}, harga turun ${impact} karena slippage.`,
+    sellSimFailed: 'Rute jual untuk nominal ini tidak bisa dihitung saat ini.',
+    viewLabel: 'Tampilan',
+    viewSimple: 'Sederhana',
+    viewDetail: 'Rinci',
+    viewShowAll: (n) => `Tampilkan semua ${n} pemeriksaan`,
+    historyTrendTitle: 'Riwayat skor token ini',
+    historyTrendHint: (n) => `dari ${n} pemindaian tersimpan`,
     mintLostReason: 'mint authority masih aktif',
     freezeLostReason: 'freeze authority masih aktif',
     holdersLostNoData: 'data holder belum terverifikasi — skor total dibatasi maks 79 (Waspada)',
@@ -527,6 +567,7 @@ export const STRINGS: Record<Lang, Dict> = {
       'Karena dicurigai bundle, skor total dibatasi maksimal 79 — bukan karena ada bahaya yang terbukti, tapi karena distribusinya belum bisa dipercaya.',
     liquidityLostNoPair: 'tidak ada pool / data pasar',
     liqPartLow: (v) => `likuiditas ${v}`,
+    liqPartBonding: 'kurva bonding (belum ada pool LP)',
     agePartLow: (v) => `pool berumur ${v}`,
     volPartLow: (v) => `volume 24j ${v}`,
     lpTitle: 'LP Burn/Lock',
@@ -848,6 +889,22 @@ export const STRINGS: Record<Lang, Dict> = {
       'The sell check could not run right now (Jupiter did not respond) — this does not mean the token cannot be sold, try scanning again.',
     sellableExplanation:
       'Extra check (outside the 100-point score): honeypot tokens can be bought but not sold back. If there is no sell route, do not buy.',
+    searchTitle: 'Matching tokens — tap to scan',
+    searchSearching: 'Searching tokens…',
+    searchEmpty: (q) => `No token matches "${q}". Paste the mint address directly.`,
+    searchFailed:
+      'Token search is unavailable right now — paste the mint address directly.',
+    sellSimTitle: 'Sell simulation',
+    sellSimChecking: 'Quoting the sell route…',
+    sellSimResult: (amount, out, impact) =>
+      `Sell ${amount} → ${out} back, ${impact} lost to price impact.`,
+    sellSimFailed: 'The sell route for this size could not be quoted right now.',
+    viewLabel: 'View',
+    viewSimple: 'Simple',
+    viewDetail: 'Detailed',
+    viewShowAll: (n) => `Show all ${n} checks`,
+    historyTrendTitle: 'Score history for this token',
+    historyTrendHint: (n) => `from ${n} saved scans`,
     mintLostReason: 'mint authority is still active',
     freezeLostReason: 'freeze authority is still active',
     holdersLostNoData: 'holder data unverified — total score capped at 79 (Caution)',
@@ -874,6 +931,7 @@ export const STRINGS: Record<Lang, Dict> = {
       'Because a bundle is suspected, the total score is capped at 79 — not because a danger is proven, but because the distribution cannot be trusted yet.',
     liquidityLostNoPair: 'no pool or market data',
     liqPartLow: (v) => `liquidity ${v}`,
+    liqPartBonding: 'bonding curve (no LP pool yet)',
     agePartLow: (v) => `pool age ${v}`,
     volPartLow: (v) => `24h volume ${v}`,
     lpTitle: 'LP Burn/Lock',

@@ -48,6 +48,38 @@ npx tsx scripts/test-scan.ts            # BONK, WIF, POPCAT
 npx tsx scripts/test-scan.ts BONK       # satu token saja
 ```
 
+## Cari pakai ticker, dan simulasi jual
+
+Dua hal yang trader pegang saat FOMO tapi tidak dijawab skor saja:
+
+- **Tanpa alamat mint.** Tulis `WIF` atau `bonk` di kolom yang sama. Kalau
+  teksnya bukan alamat, RugRadar mencari tokennya di DexScreener dan
+  menampilkan daftar kandidat (logo, nama, likuiditas gabungan) — ketuk
+  yang benar untuk memindai. Likuiditas ditampilkan karena ticker yang sama
+  sering dipakai ulang oleh token tiruan.
+- **Simulasi jual.** Kartu *Bisa Dijual* membuktikan ada rute jual untuk
+  ~$1 — itu belum menjawab berapa yang hilang saat keluar dengan nominal
+  sungguhan. Tombol $50 / $250 / $1.000 meminta kuotasi jual ke Jupiter
+  untuk nominal itu dan menampilkan SOL yang kembali plus price impact-nya.
+
+Keduanya jalan di browser, tanpa key, dan tidak mengubah skor 100 poin.
+
+## Sederhana atau rinci, dan tren skor
+
+Supaya hasil scan terbaca oleh orang yang baru pertama kali melihat token,
+tanpa mengurangi apa pun untuk yang sudah biasa:
+
+- **Tampilan bisa dipilih.** *Sederhana* (default) hanya menampilkan empat
+  pemeriksaan berskor, cek honeypot, dan pemeriksaan apa pun yang
+  benar-benar bermasalah — masalah tidak pernah disembunyikan. Tombol
+  "Tampilkan semua N pemeriksaan" membuka seluruh daftar (*Rinci*), dan
+  pilihan itu diingat di perangkat.
+- **Riwayat skor token ini.** Setiap scan disimpan; begitu ada dua scan
+  untuk token yang sama, muncul garis tren skor di bawah verdict, jadi
+  terlihat apakah tokennya membaik atau memburuk sejak terakhir kamu cek.
+- **Bisa dipasang di layar utama.** Di iOS dan Android, "Tambahkan ke Layar
+  Utama" membuka RugRadar sebagai aplikasi penuh tanpa address bar.
+
 ## Cara skor dihitung (total 100 — makin tinggi makin aman)
 
 | Pemeriksaan | Bobot | Aturan |
@@ -179,7 +211,6 @@ Setiap item menjawab satu kelemahan yang kami akui secara terbuka:
    on-chain tapi ketahuan dari luar chain: akun X yang berulang kali ganti
    username untuk meluncurkan koin rug baru, atau tautan website/Telegram
    yang dipakai ulang untuk proyek scam berikutnya.
-
 Mesin analisisnya sudah terisolasi di Cloudflare Worker, jadi saluran baru
 tinggal menyambung ke API yang sama — tanpa mengubah mesin skornya.
 

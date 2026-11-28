@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { scanToken, checkFreshWallets, checkInterWalletTransfers, checkLpUnlocks, fetchRugCheckCreator, fmtPct, extractMintCandidate, BASE58_RE, type CheckResult, type InterWalletResult, type ScanResult, type Verdict } from './lib/scanner';
+import { scanToken, checkFreshWallets, checkInterWalletTransfers, checkLpUnlocks, fetchRugCheckCreator, fmtPct, extractMintCandidate, searchDexTokens, simulateSell, BASE58_RE, type CheckResult, type DexSearchHit, type InterWalletResult, type ScanResult, type SellSim, type Verdict } from './lib/scanner';
 import { buildRiskSummary } from './lib/summary';
 import { LANGS, LANG_NAMES, LANG_STORAGE_KEY, LOCALES, STRINGS, detectLang, type Dict, type Lang } from './lib/i18n';
 import './App.css';
@@ -15,6 +15,10 @@ const VERDICT_CLASS: Record<Verdict, string> = {
   Waspada: 'verdict-warn',
   'Berisiko Tinggi': 'verdict-danger',
 };
+
+/** v7.14 — sell sizes offered by the sell simulator (USD): small enough to
+ *  be a typical first test, large enough that price impact is real. */
+const SELL_SIZES = [50, 250, 1000];
 
 /** v7.12.3 — short mint display for narrow screens: 7GCihg…YmW2hr. */
 function shortMint(mint: string): string {
@@ -271,6 +275,61 @@ function detectTheme(): Theme {
   return 'light';
 }
 
+/** v7.14 — Sederhana / Rinci. A first-time visitor (or anyone who does not
+ *  want nine cards at once) lands on Sederhana; the full list is one tap
+ *  away, so nothing is hidden — only deferred. Rinci is remembered, so a
+ *  trader who wants everything never has to ask twice. */
+const VIEW_KEY = 'rugradar-view';
+type ViewMode = 'simple' | 'detail';
+
+function detectView(): ViewMode {
+  try {
+    const saved = window.localStorage.getItem(VIEW_KEY);
+    if (saved === 'simple' || saved === 'detail') return saved;
+  } catch {
+    // storage unavailable — default to the simplest view
+  }
+  return 'simple';
+}
+
+/** The core checks Sederhana always shows: the four scored ones, plus the
+ *  honeypot/sell check — it is not scored, but "can I get out?" is the
+ *  first question a trader asks, and it hosts the sell simulator. Every
+ *  other extra check joins them only when it has something to report
+ *  (warn / fail), so the short list never swallows a real problem. */
+const CORE_CHECKS = new Set(['mint', 'freeze', 'holders', 'liquidity', 'sellable']);
+
+/** v7.14 — score trend over the saved scans of the token on screen
+ *  (oldest → newest). 0 sits at the bottom, 100 at the top. */
+function ScoreSpark({ entries }: { entries: number[] }) {
+  const w = 150;
+  const h = 34;
+  const pts = entries.map((score, i) => {
+    const x = entries.length === 1 ? w / 2 : (i / (entries.length - 1)) * w;
+    const y = h - (Math.max(0, Math.min(100, score)) / 100) * h;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  return (
+    <svg
+      className="spark"
+      viewBox={`0 0 ${w} ${h}`}
+      width={w}
+      height={h}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <polyline
+        points={pts.join(' ')}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 interface RecentScan {
   mint: string;
   name: string;
@@ -489,6 +548,18 @@ export default function App() {
       error?: string;
     }[]
   >([]);
+  // v7.14 — symbol search: shown when the input is a ticker/name ("WIF")
+  // rather than a mint address.
+  const [searchHits, setSearchHits] = useState<DexSearchHit[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  // v7.14 — sell-size simulation: the price impact of selling a real
+  // amount, quoted on demand (the scan's honeypot probe is a fixed ~$1).
+  const [sellSim, setSellSim] = useState<null | 'checking' | SellSim | 'none'>(null);
+  const [sellAmount, setSellAmount] = useState(SELL_SIZES[1]);
+  // v7.14 — Sederhana / Rinci, and the saved scan history of the token on
+  // screen (for the score trend).
+  const [viewMode, setViewMode] = useState<ViewMode>(() => detectView());
+  const [scanHistory, setScanHistory] = useState<HistoryEntry[]>(() => loadHistory());
   const [methodOpen, setMethodOpen] = useState(false);
   const [nowTick, setNowTick] = useState(Date.now());
   const resultRef = useRef<HTMLElement | null>(null);
@@ -505,6 +576,16 @@ export default function App() {
       // storage unavailable — non-fatal
     }
   }, [theme]);
+
+  // v7.14 — remember the view mode the same way, so a trader who chose
+  // Rinci is never dropped back into Sederhana on the next visit.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(VIEW_KEY, viewMode);
+    } catch {
+      // storage unavailable — non-fatal
+    }
+  }, [viewMode]);
 
   // Tick every 30s so the "updated X min ago" line stays fresh.
   useEffect(() => {
@@ -681,16 +762,15 @@ export default function App() {
     // Smart input: a pasted DexScreener / Pump.fun / Birdeye / Solscan
     // link (or any text containing an address) yields the mint inside it.
     const candidate = extractMintCandidate(raw);
-    if (!candidate) {
-      setError(tt.invalidError);
+    if (!candidate || !BASE58_RE.test(candidate)) {
+      // No usable address in the text — it may be a ticker or a name
+      // ("WIF", "bonk"), which traders often have instead of the mint.
+      // Look it up rather than only rejecting it.
+      void lookupByName(raw, tt);
       return;
     }
     if (candidate !== raw) setMint(candidate); // show the extracted address
     const addr = candidate;
-    if (!BASE58_RE.test(addr)) {
-      setError(tt.invalidError);
-      return;
-    }
     setLoading(true);
     setError(null);
     setResult(null);
@@ -698,6 +778,10 @@ export default function App() {
     setShareCardState('idle');
     setPairNote(null);
     setHistoryDiff(null);
+    // A new token is on screen — the previous token's sell simulation and
+    // search hits must never survive into its result.
+    setSellSim(null);
+    setSearchHits(null);
     try {
       const res = await scanToken(addr, useLang);
       setResult(res);
@@ -729,6 +813,8 @@ export default function App() {
           top10: res.top10SharePct,
           at: Date.now(),
         });
+        // Keep the on-screen trend in step with what was just recorded.
+        setScanHistory(loadHistory());
       }
       // The scan may have resolved a pair address to its base token —
       // show the resolved mint in the input and the shareable link.
@@ -878,6 +964,44 @@ export default function App() {
     }
   }
 
+  // v7.14 — a ticker/name typed instead of an address: look it up on
+  // DexScreener and let the user tap the right token. "No match" is about
+  // the query; a thrown error is about the API — different messages.
+  async function lookupByName(q: string, tt: Dict) {
+    const text = q.trim();
+    if (text.length < 2) {
+      setError(tt.invalidError);
+      return;
+    }
+    setError(null);
+    setResult(null);
+    setSearchHits(null);
+    setSellSim(null);
+    setSearching(true);
+    try {
+      const hits = await searchDexTokens(text);
+      setSearchHits(hits);
+      if (hits.length === 0) setError(tt.searchEmpty(text));
+    } catch {
+      setError(tt.searchFailed);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  // v7.14 — quote a sell of `usd` worth of the scanned token and show what
+  // comes back plus the price impact. 'none' covers both "no route at this
+  // size" and "API unreachable": the honeypot check already reports a
+  // missing route, so one neutral line here is enough.
+  async function runSellSim(usd: number) {
+    const res = result;
+    const price = res?.priceUsd ?? null;
+    if (!res || price == null) return;
+    setSellSim('checking');
+    const sim = await simulateSell(res.mint, res.decimals, price, usd).catch(() => null);
+    setSellSim(sim ?? 'none');
+  }
+
   function flashCopied(which: 'result' | 'link' | 'address') {
     setCopied(which);
     window.setTimeout(() => setCopied((c) => (c === which ? null : c)), 2000);
@@ -886,6 +1010,8 @@ export default function App() {
   function clearInput() {
     setMint('');
     setError(null);
+    setSearchHits(null);
+    setSellSim(null);
     // The old result belongs to the cleared address — drop it too, so a
     // stale score does not stay on screen with an empty input.
     setResult(null);
@@ -1098,6 +1224,24 @@ export default function App() {
           (b.maxScore - b.score) - (a.maxScore - a.score),
       )
     : [];
+  // v7.14 — Sederhana lists the core checks plus anything that went wrong;
+  // Rinci lists every check. `hiddenChecks` drives the expand button, so the
+  // short list is never a dead end.
+  const detail = viewMode === 'detail';
+  const visibleChecks = detail
+    ? sortedChecks
+    : sortedChecks.filter(
+        (c) => CORE_CHECKS.has(c.id) || c.status === 'warn' || c.status === 'fail',
+      );
+  const hiddenChecks = sortedChecks.length - visibleChecks.length;
+  // Newest-first history for this mint, reversed so the sparkline reads
+  // left (oldest) → right (newest).
+  const mintTrend = result
+    ? scanHistory
+        .filter((e) => e.mint === result.mint)
+        .slice(0, 12)
+        .reverse()
+    : [];
 
   function relativeUpdated(scannedAt: string): string {
     const mins = Math.max(
@@ -1295,6 +1439,38 @@ export default function App() {
           </div>
         )}
 
+        {searching && <p className="search-note">{t.searchSearching}</p>}
+
+        {/* v7.14 — a ticker/name instead of an address: tap the right
+          token to scan it. Liquidity is shown because the same ticker is
+          routinely reused by copycat tokens. */}
+        {searchHits && searchHits.length > 0 && (
+          <div className="search-results">
+            <span className="search-title">{t.searchTitle}</span>
+            {searchHits.map((h) => (
+              <button
+                key={h.mint}
+                type="button"
+                className="search-hit"
+                onClick={() => {
+                  setMint(h.mint);
+                  setSearchHits(null);
+                  void runScan(h.mint);
+                }}
+                disabled={loading}
+                title={h.mint}
+              >
+                <TokenLogo url={h.logoUrl} symbol={h.symbol} small />
+                <span className="search-hit-main">
+                  <strong>{upperSymbol(h.symbol)}</strong>
+                  <span className="search-hit-name">{h.name}</span>
+                </span>
+                <span className="search-hit-liq">{fmtUsd(h.liquidityUsd, lang)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {error && <div className="error">{error}</div>}
 
         {loading && (
@@ -1451,6 +1627,19 @@ export default function App() {
             </p>
           )}
 
+          {/* v7.14 — score trend over the saved scans of this token: a
+            snapshot becomes a direction. Hidden until there are two
+            points, because one scan is not a trend. */}
+          {mintTrend.length >= 2 && (
+            <div className="history-trend">
+              <span className="history-trend-title">{t.historyTrendTitle}</span>
+              <ScoreSpark entries={mintTrend.map((e) => e.score)} />
+              <span className="history-trend-hint">
+                {t.historyTrendHint(String(mintTrend.length))}
+              </span>
+            </div>
+          )}
+
           {/* v7.10 (UI 3) — Market and Token are their own sub-cards now. */}
           <div className="subcards">
             <div className="subcard">
@@ -1549,9 +1738,32 @@ export default function App() {
 
           {/* v7.10 (UI 3) — the checks are their own sub-card too. */}
           <div className="subcard checks-card">
-            <h3>{t.checksHeading}</h3>
+            <div className="checks-head">
+              <h3>{t.checksHeading}</h3>
+              {/* v7.14 — Sederhana / Rinci. Sederhana lists the core checks
+                plus anything that actually went wrong; Rinci lists all of
+                them. The choice is remembered. */}
+              <div className="view-toggle" role="group" aria-label={t.viewLabel}>
+                <button
+                  type="button"
+                  className={viewMode === 'simple' ? 'vt-btn vt-on' : 'vt-btn'}
+                  aria-pressed={viewMode === 'simple'}
+                  onClick={() => setViewMode('simple')}
+                >
+                  {t.viewSimple}
+                </button>
+                <button
+                  type="button"
+                  className={viewMode === 'detail' ? 'vt-btn vt-on' : 'vt-btn'}
+                  aria-pressed={viewMode === 'detail'}
+                  onClick={() => setViewMode('detail')}
+                >
+                  {t.viewDetail}
+                </button>
+              </div>
+            </div>
             <ul className="checks">
-              {sortedChecks.map((c, idx) => {
+              {visibleChecks.map((c, idx) => {
                 // v7.12.7 — mid-range Liquidity (e.g. 23/30) gets a muted
                 // card to match its neutral CUKUP/FAIR badge (see badgeLabel).
                 const isMidRange =
@@ -1589,6 +1801,50 @@ export default function App() {
                     </p>
                   )}
                   <p className="check-expl">{c.explanation}</p>
+                  {/* v7.14 — sell-size simulation: the card above proves a
+                    route exists for ~$1, which says nothing about what a
+                    real exit costs. Quoted on demand, per size. */}
+                  {c.id === 'sellable' && result.priceUsd != null && (
+                    <div className="sub-finding sell-sim">
+                      <div className="sub-finding-head">
+                        <span className="sub-finding-title">{t.sellSimTitle}</span>
+                      </div>
+                      <div className="sell-sim-sizes">
+                        {SELL_SIZES.map((usd) => (
+                          <button
+                            key={usd}
+                            type="button"
+                            className={`chip${sellAmount === usd ? ' chip-active' : ''}`}
+                            onClick={() => {
+                              setSellAmount(usd);
+                              void runSellSim(usd);
+                            }}
+                            disabled={sellSim === 'checking'}
+                          >
+                            ${usd}
+                          </button>
+                        ))}
+                      </div>
+                      {sellSim === 'checking' && (
+                        <p className="check-note">{t.sellSimChecking}</p>
+                      )}
+                      {sellSim && sellSim !== 'checking' && (
+                        <p className="sub-finding-text">
+                          {sellSim === 'none'
+                            ? t.sellSimFailed
+                            : t.sellSimResult(
+                                fmtUsd(sellSim.amountUsd, lang),
+                                sellSim.outSol != null
+                                  ? `${sellSim.outSol.toFixed(3)} SOL`
+                                  : '—',
+                                sellSim.impactPct != null
+                                  ? `${sellSim.impactPct.toFixed(2)}%`
+                                  : '—',
+                              )}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {c.id === 'holders' && (
                     <p className="check-note">{holdersExcludedNote}</p>
                   )}
@@ -1757,6 +2013,17 @@ export default function App() {
                 );
               })}
             </ul>
+            {/* v7.14 — nothing is hidden in Sederhana: the remaining checks
+              are one tap away. */}
+            {hiddenChecks > 0 && (
+              <button
+                type="button"
+                className="btn-secondary view-more"
+                onClick={() => setViewMode('detail')}
+              >
+                {t.viewShowAll(String(sortedChecks.length))}
+              </button>
+            )}
           </div>
 
             <div className="share-row">
@@ -1920,7 +2187,7 @@ export default function App() {
         </p>
         <p>{t.footerDisclaimer}</p>
         {/* v7.10 (B9) — build label, so a bug report can be tied to a version. */}
-        <p className="version">RugRadar v7.12.7</p>
+        <p className="version">RugRadar v7.14</p>
       </footer>
 
       {methodOpen && (

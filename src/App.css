@@ -302,6 +302,35 @@ a:focus-visible {
 .chip:hover:not(:disabled) { background: var(--surface-3); border-color: var(--border-hover); }
 .chip:active:not(:disabled) { transform: scale(0.98); }
 .chip-recent { font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 6px; }
+.chip-active { border-color: var(--accent); color: var(--accent); font-weight: 800; }
+
+/* v7.14 — ticker/name search hits: one row per token, tap to scan it.
+ * Liquidity sits on the right because the same ticker is routinely reused
+ * by copycat tokens — the deepest pool is the one worth scanning. */
+.search-note { margin-top: 12px; font-size: 13px; color: var(--faint); }
+.search-results { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.search-title { font-size: 12px; font-weight: 700; color: var(--faint); }
+.search-hit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.search-hit:hover:not(:disabled) { background: var(--surface-3); border-color: var(--border-hover); }
+.search-hit:active:not(:disabled) { transform: scale(0.995); }
+.search-hit:disabled { opacity: 0.6; cursor: default; }
+.search-hit-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.search-hit-main strong { font-size: 14px; color: var(--text); }
+.search-hit-name { font-size: 12px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-hit-liq { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .error {
   margin-top: 16px;
@@ -757,6 +786,22 @@ a:focus-visible {
 .check-detail { margin: 8px 0 4px; font-size: 14px; line-height: 1.5; }
 .check-lost { margin: 4px 0; font-size: 13px; font-weight: 700; color: var(--amber-strong); }
 .check-expl { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+/* v7.14 — checks card header carrying the Sederhana / Rinci toggle. */
+.checks-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.checks-head h3 { margin: 0; }
+.view-toggle { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 999px; overflow: hidden; }
+.vt-btn { padding: 4px 12px; border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer; transition: background 0.15s ease, color 0.15s ease; }
+.vt-btn:hover { background: var(--surface-2); }
+.vt-on, .vt-on:hover { background: var(--accent); color: #fff; }
+.view-more { margin-top: 12px; width: 100%; }
+/* v7.14 — score trend sparkline (saved scans of the token on screen). */
+.history-trend { margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }
+.history-trend-title { font-weight: 700; color: var(--faint); }
+.spark { color: var(--accent); flex: none; }
+.history-trend-hint { color: var(--faint); }
+/* v7.14 — sell-size simulator inside the Sellable card. */
+.sell-sim-sizes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.sell-sim-sizes .chip { padding: 3px 10px; font-size: 12px; }
 .check-note { margin: 8px 0 0; font-size: 12px; color: var(--faint); }
 /* v7.12.5 — concrete from → to examples under the inter-wallet line. */
 .transfer-examples { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 2px; }
