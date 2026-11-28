@@ -81,7 +81,19 @@ Live ada di branch `gh-pages` yang **dibangun manual** dari laptop. Sesi agen ti
 | `.github/workflows/ci.yml` | `npm ci` + `npm run build` + `npx tsx scripts/test-scan.ts` (continue-on-error). Muncul di push ke `freemilk/**` dan `main`. Log tes scan bisa dibaca langsung → skor BONK/WIF/POPCAT/PYUSD terverifikasi tanpa laptop. |
 | `.github/workflows/deploy.yml` | Build dari `main` lalu terbitkan `dist/` ke `gh-pages` (git push langsung, tanpa action pihak ketiga). Termasuk `.nojekyll`. |
 
-**Rollback live:** `git push -f origin 6d7e916:gh-pages` mengembalikan live ke RugRadar v7.12.7 — SHA `gh-pages` terakhir sebelum deploy otomatis. Catat: deploy memakai `git init` di `dist/`, jadi riwayat `gh-pages` diganti (force push); SHA di atas adalah jalan pulangnya.
+**Rollback live:** sebelum deploy otomatis, `gh-pages` ada di `5a8a9fa` — RugRadar **v7.13**, yaitu versi yang live saat catatan ini ditulis. `git push -f origin 5a8a9fa:gh-pages` mengembalikan live ke v7.13. Deploy otomatis memakai `git init` di `dist/`, jadi riwayat `gh-pages` diganti (force push); SHA di atas adalah jalan pulangnya.
+
+### Temuan saat push: v7.13 sudah live — merge, bukan timpa
+
+Push pertama ke `main` **ditolak** karena `origin/main` sudah maju ke `d179656` ("RugRadar v7.13: fix all 43 audit bugs (H1-H3, M1-M18, L1-L22) + TEST-RESULTS") dan `gh-pages` ke `5a8a9fa` (v7.13 live). Branch ini dibangun di atas v7.12.7, jadi menimpanya akan menghapus 43 perbaikan bug audit.
+
+Karena itu `origin/main` di-merge ke branch ini. Konflik hanya di `src/App.tsx` (7 blok) dan diselesaikan dengan menjaga kedua sisi:
+
+- **Error**: v7.13 mengganti error string menjadi kode (`ScanError` + `errorText`). Pesan pencarian ditambahkan sebagai dua kode baru — `searchEmpty` (membawa `q`) dan `searchFailed` — supaya tetap ikut bahasa UI.
+- **Lifecycle scan**: guard `scanInFlightRef` / `scanIdRef` milik v7.13 dipertahankan apa adanya.
+- **Validasi alamat**: alamat yang bukan base58 kini jatuh ke pencarian ticker, bukan hanya ditolak `{ code: 'invalid' }`.
+- **Reset state**: sesuai v7.13 (M3), hasil lama tetap di layar saat scan berjalan, jadi `setPairNote`/`setHistoryDiff` tidak dikosongkan di awal; reset `sellSim`/`searchHits` tetap dilakukan karena keduanya milik token sebelumnya.
+- Satu bug dari resolusi sendiri sempat lolos: dua baris sisa (`return; }` ganda) membuat kurung kurawal berlebih dan build gagal (`TS1128` di akhir file). Ditemukan lewat build, sudah dihapus, build lolos lagi.
 
 ### File yang berubah
 
@@ -93,9 +105,11 @@ Live ada di branch `gh-pages` yang **dibangun manual** dari laptop. Sesi agen ti
 
 ### Hasil tes
 
-- **`npm run build`:** lolos lewat build pipeline FreeMilk setelah seluruh perubahan ini masuk (TypeScript + Vite). Akan dijalankan ulang oleh CI di GitHub.
-- **Tes scan:** dijalankan oleh CI (`ci.yml`); hasil asli dicatat di bawah setelah job selesai.
-- **Skor:** BONK `belum diuji` / WIF `belum diuji` / POPCAT `belum diuji` / PYUSD `belum diuji`. Target 81 / 88 / 88 / 0. Bella memverifikasi live setelah push.
+- **`npm run build`:** lolos lewat build pipeline FreeMilk dua kali — pada tree v7.14 (basis v7.12.7) dan pada tree hasil merge dengan v7.13. CI GitHub juga menjalankan `npm ci` + `npm run build` pada commit `83f4cad` dan **passed** (32 detik).
+- **Tes scan (`npx tsx scripts/test-scan.ts`, di runner GitHub):** benar-benar dijalankan dan mencetak JSON hasil. Dari log yang terbaca: **PYUSD = 0 / Berisiko Tinggi** — mint authority AKTIF, freeze authority AKTIF, top-10 85,2%, Token-2022 −35 (Permanent Delegate, Transfer Fee, Transfer Hook). Persis skor target, bukan angka karangan.
+- **Belum terbaca:** BONK, WIF, POPCAT — log run pertama terpotong di 1031 baris awal. Langkah CI sudah diubah agar mencetak ringkasan `=== / Score / Sellable / Top-10` di akhir log, jadi keempat skor terbaca pada run berikutnya tanpa perlu laptop.
+- **Target pemilik:** BONK 81 / WIF 88 / POPCAT 88 / PYUSD 0.
+- **Verifikasi live:** Bella setelah deploy.
 
 ---
 

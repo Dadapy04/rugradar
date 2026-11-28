@@ -211,6 +211,7 @@ Setiap item menjawab satu kelemahan yang kami akui secara terbuka:
    on-chain tapi ketahuan dari luar chain: akun X yang berulang kali ganti
    username untuk meluncurkan koin rug baru, atau tautan website/Telegram
    yang dipakai ulang untuk proyek scam berikutnya.
+
 Mesin analisisnya sudah terisolasi di Cloudflare Worker, jadi saluran baru
 tinggal menyambung ke API yang sama — tanpa mengubah mesin skornya.
 
