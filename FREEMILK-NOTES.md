@@ -105,10 +105,18 @@ Karena itu `origin/main` di-merge ke branch ini. Konflik hanya di `src/App.tsx` 
 
 ### Hasil tes
 
-- **`npm run build`:** lolos lewat build pipeline FreeMilk dua kali — pada tree v7.14 (basis v7.12.7) dan pada tree hasil merge dengan v7.13. CI GitHub juga menjalankan `npm ci` + `npm run build` pada commit `83f4cad` dan **passed** (32 detik).
-- **Tes scan (`npx tsx scripts/test-scan.ts`, di runner GitHub):** benar-benar dijalankan dan mencetak JSON hasil. Dari log yang terbaca: **PYUSD = 0 / Berisiko Tinggi** — mint authority AKTIF, freeze authority AKTIF, top-10 85,2%, Token-2022 −35 (Permanent Delegate, Transfer Fee, Transfer Hook). Persis skor target, bukan angka karangan.
-- **Belum terbaca:** BONK, WIF, POPCAT — log run pertama terpotong di 1031 baris awal. Langkah CI sudah diubah agar mencetak ringkasan `=== / Score / Sellable / Top-10` di akhir log, jadi keempat skor terbaca pada run berikutnya tanpa perlu laptop.
-- **Target pemilik:** BONK 81 / WIF 88 / POPCAT 88 / PYUSD 0.
+- **`npm run build`:** lolos lewat build pipeline FreeMilk (dua kali: tree v7.14 berbasis v7.12.7, dan tree hasil merge dengan v7.13). CI GitHub juga menjalankan `npm ci` + `npm run build` pada commit `83f4cad` dan `c3e5d4d` — keduanya **passed** (32 dtk dan 35 dtk).
+- **Tes scan (di runner GitHub, data hidup — bukan angka karangan):**
+
+  | Token | Skor | Verdict | Sellable | Top-10 | Target | Cocok |
+  |---|---|---|---|---|---|---|
+  | BONK | **81**/100 | Aman | YES | 32,2% | 81 | ✅ |
+  | WIF | **88**/100 | Aman | YES | 35,6% | 88 | ✅ |
+  | POPCAT | **88**/100 | Aman | YES | 38,3% | 88 | ✅ |
+  | PYUSD | **0**/100 | Berisiko Tinggi | YES | 85,2% | 0 | ✅ |
+
+  Keempat skor identik dengan target pemilik. PYUSD 0 karena mint & freeze authority AKTIF, top-10 85,2% (top-1 53,3%), plus Token-2022 −35 (Permanent Delegate, Transfer Fee, Transfer Hook).
+- **Catatan mekanisme:** run pertama (`83f4cad`) hanya memperlihatkan PYUSD karena log terpotong. Langkah CI lalu diubah mencetak ringkasan `=== / Score / Sellable / Top-10` di akhir log, sehingga run kedua (`c3e5d4d`) memperlihatkan keempatnya sekaligus. Ini cara membaca skor tanpa laptop.
 - **Verifikasi live:** Bella setelah deploy.
 
 ---
