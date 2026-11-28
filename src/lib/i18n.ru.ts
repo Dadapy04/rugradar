@@ -245,6 +245,8 @@ export const ru: Dict = {
   transfersChecking: 'Проверка переводов между кошельками…',
   transfersLine: (involved, total) =>
     `${involved} из ${total} крупнейших холдеров перемещали токены между кошельками после запуска`,
+  transfersNeutral: (involved, total) =>
+    `${involved} из ${total} крупнейших холдеров получили токены из одного общего источника — обычная схема дистрибьютора / маркет-мейкера для крупных токенов`,
   transfersNone: 'Переводов между кошельками среди топ-5 холдеров не обнаружено',
   transfersUnavailable: 'Не удалось проверить переводы между кошельками',
   transfersSharedSource: 'общий источник',

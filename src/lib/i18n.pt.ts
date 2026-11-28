@@ -250,6 +250,8 @@ export const pt: Dict = {
   transfersChecking: 'Verificando transferências entre carteiras…',
   transfersLine: (involved, total) =>
     `${involved} dos ${total} maiores holders moveram tokens entre carteiras após o lançamento`,
+  transfersNeutral: (involved, total) =>
+    `${involved} dos ${total} maiores holders receberam tokens de uma mesma fonte — um padrão comum de distribuidores / formadores de mercado em tokens grandes`,
   transfersNone: 'Nenhuma transferência entre carteiras detectada entre os 5 maiores holders',
   transfersUnavailable: 'Não foi possível verificar as transferências entre carteiras',
   transfersSharedSource: 'fonte compartilhada',

@@ -250,6 +250,8 @@ export const es: Dict = {
   transfersChecking: 'Revisando transferencias entre billeteras…',
   transfersLine: (involved, total) =>
     `${involved} de los ${total} holders principales movieron tokens entre billeteras tras el lanzamiento`,
+  transfersNeutral: (involved, total) =>
+    `${involved} de los ${total} holders principales recibieron tokens de una misma fuente — un patrón común de distribuidores / creadores de mercado en tokens grandes`,
   transfersNone: 'No se detectaron transferencias entre billeteras entre los 5 holders principales',
   transfersUnavailable: 'No se pudieron revisar las transferencias entre billeteras',
   transfersSharedSource: 'fuente compartida',

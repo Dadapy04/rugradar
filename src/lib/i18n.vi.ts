@@ -247,6 +247,8 @@ export const vi: Dict = {
   transfersChecking: 'Đang kiểm tra chuyển khoản giữa các ví…',
   transfersLine: (involved, total) =>
     `${involved} trong số ${total} holder hàng đầu đã chuyển token giữa các ví sau khi ra mắt`,
+  transfersNeutral: (involved, total) =>
+    `${involved} trong số ${total} holder lớn nhất nhận token từ một nguồn chung — mô hình phổ biến của nhà phân phối / nhà tạo lập thị trường ở các token lớn`,
   transfersNone: 'Không phát hiện chuyển khoản giữa các ví trong top 5 holder',
   transfersUnavailable: 'Không thể kiểm tra chuyển khoản giữa các ví',
   transfersSharedSource: 'nguồn chung',

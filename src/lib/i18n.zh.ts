@@ -249,6 +249,7 @@ export const zh: Dict = {
   // v7.12.5 — post-launch inter-wallet transfers
   transfersChecking: '正在检查钱包间转账…',
   transfersLine: (involved, total) => `前 ${total} 大持币者中有 ${involved} 个在上线后转移了代币`,
+  transfersNeutral: (involved, total) => `前 ${total} 大持币者中有 ${involved} 个从同一来源收到代币——这是大市值代币中常见的分销商/做市商模式`,
   transfersNone: '在前 5 大持币者中未检测到钱包间转账',
   transfersUnavailable: '无法检查钱包间转账',
   transfersSharedSource: '共同来源',

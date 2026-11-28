@@ -268,6 +268,9 @@ export interface Dict {
   // v7.12.5 — post-launch inter-wallet transfers (secondary check)
   transfersChecking: string;
   transfersLine: (involved: string, total: string) => string;
+  // v7.12.6 — neutral variant: shared source, but NOT suspicious
+  // (not the creator, not within 7 days of launch).
+  transfersNeutral: (involved: string, total: string) => string;
   transfersNone: string;
   transfersUnavailable: string;
   transfersSharedSource: string;
@@ -589,6 +592,8 @@ export const STRINGS: Record<Lang, Dict> = {
     transfersChecking: 'Memeriksa transfer antar-dompet…',
     transfersLine: (involved, total) =>
       `${involved} dari ${total} holder teratas memindahkan token antar-dompet setelah peluncuran`,
+    transfersNeutral: (involved, total) =>
+      `${involved} dari ${total} holder teratas menerima token dari satu sumber yang sama — pola umum distributor/market maker di token besar`,
     transfersNone: 'Tidak ada transfer antar-dompet terdeteksi di 5 holder teratas',
     transfersUnavailable: 'Transfer antar-dompet tidak dapat diperiksa',
     transfersSharedSource: 'sumber bersama',
@@ -923,6 +928,8 @@ export const STRINGS: Record<Lang, Dict> = {
     transfersChecking: 'Checking inter-wallet transfers…',
     transfersLine: (involved, total) =>
       `${involved} of the top ${total} holders moved tokens between wallets after launch`,
+    transfersNeutral: (involved, total) =>
+      `${involved} of the top ${total} holders received tokens from one shared source — a common distributor / market-maker pattern on large tokens`,
     transfersNone: 'No inter-wallet transfers detected among the top 5 holders',
     transfersUnavailable: 'Inter-wallet transfers could not be checked',
     transfersSharedSource: 'shared source',

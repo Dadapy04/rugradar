@@ -1642,6 +1642,9 @@ export interface InterWalletTransfer {
   /** True when `from` funded 2+ of the checked top holders — the
    *  shared-source pattern behind a slow-split cluster. */
   sharedSource: boolean;
+  /** Block time (ms) of the EARLIEST transaction this edge was seen in
+   *  (v7.12.6: the "within 7 days of launch" amber rule needs it). */
+  blockTimeMs: number | null;
 }
 
 export interface InterWalletResult {
@@ -1652,6 +1655,12 @@ export interface InterWalletResult {
   /** Holders whose history could not be read at all. */
   unknown: number;
   total: number;
+  /** v7.12.6 — true ONLY when the shared-source pattern is genuinely
+   *  suspicious: the shared source IS the token creator, or ≥2 holders
+   *  received tokens from the shared source within 7 days of pair
+   *  creation. Otherwise a shared source is a common distributor /
+   *  market-maker pattern on large tokens — neutral, never amber. */
+  suspicious: boolean;
   /** Up to 3 concrete edges, shared-source edges first. */
   examples: InterWalletTransfer[];
 }
@@ -1678,6 +1687,13 @@ export interface InterWalletResult {
  *  count, so pre-launch funding is not mistaken for post-launch splits.
  *  A sender that funded 2+ checked holders is flagged as a shared
  *  source.
+ *  v7.12.6 — the card NO LONGER goes amber on any shared source: that
+ *  cried wolf on legit large tokens (BONK probed 5/5 from one shared
+ *  source — most likely a distributor/market maker). Amber ONLY when
+ *  the pattern is genuinely suspicious: (a) the shared source IS the
+ *  token creator (`creator` param, from RugCheck), or (b) ≥2 holders
+ *  received tokens from the shared source within 7 days of pair
+ *  creation. Otherwise the same count shows as neutral/informational.
  *  Cost: 5 holders × (1 sig call + ≤10 tx calls) ≈ 55 calls worst case,
  *  holders 2 at a time, tx fetches in batches of 3 — inside the proxy's
  *  120 req/min limit. Returns null when nothing could be read. */
@@ -1685,6 +1701,7 @@ export async function checkInterWalletTransfers(
   mint: string,
   holderAccounts: string[],
   sinceMs: number | null,
+  creator: string | null = null,
 ): Promise<InterWalletResult | null> {
   type BalanceEntry = {
     accountIndex?: number;
@@ -1789,6 +1806,9 @@ export async function checkInterWalletTransfers(
       }
       const holderOwner = ownerOf.get(account);
       if (holderOwner) ownerOfHolder.set(account, holderOwner);
+      // v7.12.6 — the tx's block time, for the "within 7 days of launch"
+      // amber rule (earliest transfer per edge wins — see below).
+      const txMs = tx.blockTime != null ? tx.blockTime * 1000 : null;
       for (const ix of tx.transaction?.message?.instructions ?? []) {
         if (!TOKEN_PROGRAMS.has(ix.programId)) continue;
         const parsed = ix.parsed;
@@ -1809,8 +1829,17 @@ export async function checkInterWalletTransfers(
         const to = ownerOf.get(dest);
         if (!from || !to || from === to) continue; // unknown / self-transfer
         const key = `${from}>${to}`;
-        if (!edges.has(key))
-          edges.set(key, { from, to, sharedSource: false });
+        const existing = edges.get(key);
+        if (!existing) {
+          edges.set(key, { from, to, sharedSource: false, blockTimeMs: txMs });
+        } else if (
+          txMs != null &&
+          (existing.blockTimeMs == null || txMs < existing.blockTimeMs)
+        ) {
+          // Same pair, earlier transfer: the earliest receipt is the
+          // signal for the 7-day rule, so keep the oldest timestamp.
+          existing.blockTimeMs = txMs;
+        }
       }
     }
   }
@@ -1835,6 +1864,25 @@ export async function checkInterWalletTransfers(
   for (const e of edges.values()) {
     if ((fundedBy.get(e.from)?.size ?? 0) >= 2) e.sharedSource = true;
   }
+  // v7.12.6 — amber ONLY when genuinely suspicious:
+  // (a) the shared source IS the token creator, or
+  // (b) ≥2 distinct holders received tokens from a shared source within
+  // 7 days of pair creation. Anything else — e.g. a distributor or
+  // market maker feeding a large token's top holders years after launch —
+  // is neutral, never amber.
+  const sharedSenders = new Set<string>();
+  for (const e of edges.values()) if (e.sharedSource) sharedSenders.add(e.from);
+  let suspicious = creator != null && sharedSenders.has(creator);
+  if (!suspicious && sinceMs != null) {
+    const windowEndMs = sinceMs + 7 * 86_400_000;
+    const earlyReceivers = new Set<string>();
+    for (const e of edges.values()) {
+      if (!e.sharedSource) continue;
+      if (e.blockTimeMs == null || e.blockTimeMs > windowEndMs) continue;
+      earlyReceivers.add(e.to);
+    }
+    suspicious = earlyReceivers.size >= 2;
+  }
   // Distinct checked holder accounts appearing in an edge.
   const involvedAccounts = new Set<string>();
   for (const e of edges.values()) {
@@ -1850,8 +1898,48 @@ export async function checkInterWalletTransfers(
     checked,
     unknown,
     total: holderAccounts.length,
+    suspicious,
     examples: sorted.slice(0, 3),
   };
+}
+
+/** v7.12.6 — token creator wallet from the RugCheck report (the
+ *  `creator` field). Secondary-step helper for the inter-wallet check:
+ *  the main scan fetches RugCheck only for young tokens, so old tokens
+ *  (e.g. BONK) have no creator on hand — this fetches it on demand.
+ *  Proxy first, direct fallback, 8s per URL (same pattern as
+ *  checkLpUnlocks). Null when the report cannot be read or has no
+ *  creator — the amber rule then simply never fires on (a). */
+export async function fetchRugCheckCreator(mint: string): Promise<string | null> {
+  type RugCheckReport = {
+    creator?: string | null;
+    error?: unknown;
+  };
+  const REPORT_URLS = [
+    `${PROXY_URL}/rugcheck/${mint}`,
+    `https://api.rugcheck.xyz/v1/tokens/${mint}/report`,
+  ];
+  for (const url of REPORT_URLS) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8_000);
+    try {
+      const res = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal: ctrl.signal,
+      });
+      if (!res.ok) continue;
+      const parsed = (await res.json()) as RugCheckReport;
+      if (parsed != null && typeof parsed === 'object' && parsed.error != null) continue;
+      return typeof parsed.creator === 'string' && parsed.creator.length > 0
+        ? parsed.creator
+        : null;
+    } catch {
+      // try the next URL
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return null;
 }
 
 /** v7.12 — LP unlock countdown: pure parser for a RugCheck report's

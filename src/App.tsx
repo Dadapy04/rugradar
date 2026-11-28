@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { scanToken, checkFreshWallets, checkInterWalletTransfers, checkLpUnlocks, fmtPct, extractMintCandidate, BASE58_RE, type CheckResult, type InterWalletResult, type ScanResult, type Verdict } from './lib/scanner';
+import { scanToken, checkFreshWallets, checkInterWalletTransfers, checkLpUnlocks, fetchRugCheckCreator, fmtPct, extractMintCandidate, BASE58_RE, type CheckResult, type InterWalletResult, type ScanResult, type Verdict } from './lib/scanner';
 import { buildRiskSummary } from './lib/summary';
 import { LANGS, LANG_NAMES, LANG_STORAGE_KEY, LOCALES, STRINGS, detectLang, type Dict, type Lang } from './lib/i18n';
 import './App.css';
@@ -529,7 +529,11 @@ export default function App() {
   // runs only AFTER a result renders, over the top-5 holder accounts.
   // `sinceMs` is the pair creation time (from pair age), so pre-launch
   // funding is not mistaken for post-launch splits; null when the pair
-  // age is unknown. Cancelled when a new scan starts.
+  // age is unknown. v7.12.6 — the creator wallet comes from RugCheck
+  // (fetched on demand: the main scan only fetches RugCheck for young
+  // tokens). The amber rule needs it, so it is read first — a fast
+  // single fetch — then the transfer check runs with it. Cancelled when
+  // a new scan starts.
   useEffect(() => {
     if (!result || !result.top10Holders || result.top10Holders.length === 0) {
       setInterWallet(null);
@@ -541,18 +545,21 @@ export default function App() {
       result.pairAgeDays != null
         ? Date.now() - result.pairAgeDays * 86_400_000
         : null;
-    void checkInterWalletTransfers(
-      result.mint,
-      result.top10Holders.slice(0, 5).map((h) => h.address),
-      sinceMs,
-    )
-      .then((r) => {
-        if (cancelled) return;
-        setInterWallet(r == null || r.checked === 0 ? 'unavailable' : r);
-      })
-      .catch(() => {
-        if (!cancelled) setInterWallet('unavailable');
-      });
+    // Capture before the await below — TS narrowing of top10Holders
+    // does not survive across an await boundary.
+    const holderAccounts = result.top10Holders.slice(0, 5).map((h) => h.address);
+    void (async () => {
+      const creator = await fetchRugCheckCreator(result.mint).catch(() => null);
+      if (cancelled) return;
+      const r = await checkInterWalletTransfers(
+        result.mint,
+        holderAccounts,
+        sinceMs,
+        creator,
+      ).catch(() => null);
+      if (cancelled) return;
+      setInterWallet(r == null || r.checked === 0 ? 'unavailable' : r);
+    })();
     return () => {
       cancelled = true;
     };
@@ -1597,8 +1604,11 @@ export default function App() {
                       </p>
                     )}
                   {/* v7.12.5 — post-launch inter-wallet transfers
-                    (secondary check; ≥2 holders involved reads as a warn,
-                    with up to 3 concrete from → to examples). */}
+                    (secondary check; v7.12.6: amber ONLY when the result
+                    is suspicious — shared source is the creator, or ≥2
+                    holders were fed within 7 days of launch. Otherwise
+                    the same count shows as neutral info, with up to 3
+                    concrete from → to examples). */}
                   {c.id === 'holders' && interWallet === 'checking' && (
                     <p className="check-note">{t.transfersChecking}</p>
                   )}
@@ -1610,14 +1620,19 @@ export default function App() {
                     interWallet !== 'checking' &&
                     interWallet !== 'unavailable' && (
                       <div
-                        className={`check-note${interWallet.involved >= 2 ? ' fresh-warn' : ''}`}
+                        className={`check-note${interWallet.suspicious ? ' fresh-warn' : ''}`}
                       >
                         {interWallet.involved === 0
                           ? t.transfersNone
-                          : t.transfersLine(
-                              String(interWallet.involved),
-                              String(interWallet.total),
-                            )}
+                          : interWallet.suspicious
+                            ? t.transfersLine(
+                                String(interWallet.involved),
+                                String(interWallet.total),
+                              )
+                            : t.transfersNeutral(
+                                String(interWallet.involved),
+                                String(interWallet.total),
+                              )}
                         {interWallet.examples.length > 0 && (
                           <ul className="transfer-examples">
                             {interWallet.examples.map((e) => (
@@ -1832,7 +1847,7 @@ export default function App() {
         </p>
         <p>{t.footerDisclaimer}</p>
         {/* v7.10 (B9) — build label, so a bug report can be tied to a version. */}
-        <p className="version">RugRadar v7.12.5</p>
+        <p className="version">RugRadar v7.12.6</p>
       </footer>
 
       {methodOpen && (
