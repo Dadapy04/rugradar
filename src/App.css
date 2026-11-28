@@ -184,7 +184,11 @@ body {
   min-width: 0;
   width: 100%;
   padding: 12px 92px 12px 14px;
-  font-size: 15px;
+  /* v7.14.2 — 16px minimum: iOS Safari auto-zooms the whole page when a
+   * focused input's font is smaller than 16px, which on a phone shrank and
+   * shifted the layout (right edge clipped) the moment the mint field was
+   * tapped, and the zoom stuck after blur. */
+  font-size: 16px;
   font-family: ui-monospace, monospace;
   color: var(--text);
   background: var(--surface);
@@ -515,7 +519,9 @@ a:focus-visible {
   box-sizing: border-box;
   min-height: 96px;
   padding: 12px 14px;
-  font-size: 14px;
+  /* v7.14.2 — same iOS rule as .mint-input: never below 16px, or focusing
+   * the batch textarea zooms the page. */
+  font-size: 16px;
   font-family: ui-monospace, monospace;
   color: var(--text);
   background: var(--surface);

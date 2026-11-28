@@ -104,10 +104,36 @@ Terlihat di live: `$25.7200` di tile Volume 24h (bersebelahan dengan `$22.8 K`),
 - **Skor:** BONK **81**, WIF **88**, POPCAT **88**, PYUSD **0** — diukur di runner GitHub pada `c3e5d4d`. Perbaikan v7.14.1 tidak menyentuh jalur skor mana pun; `scanner.ts` hanya diubah pada fungsi pencarian, dan `simulateSell()` tidak dipanggil `scanToken`. CI akan mengukur ulang pada commit ini.
 - **Yang belum diverifikasi:** apakah `lite-api.jup.ag` mengizinkan CORS dari browser. Kalau tidak, kode otomatis jatuh ke DexScreener (perilaku lama), tetapi urutan kandidat akan kembali buruk. Diverifikasi setelah deploy.
 
+---
+
+## Entri 4 — v7.14.2: halaman nge-zoom di iPhone
+
+- **Tanggal/jam:** `[TTTT-MM-DD HH:MM — diisi manual]`
+- **Cara ditemukan:** verifikasi live v7.14.1 di browser ponsel. Begitu kolom "Token Mint Address" disentuh, seluruh halaman membesar ~10% dan bergeser ke kiri, tepi kanan terpotong; efeknya bertahan walau fokus dipindah dan baru hilang setelah muat ulang. Di iPhone ini akan terjadi setiap kali trader menempel alamat mint — yaitu langkah pertama produk ini.
+
+- **Penyebab:** iOS Safari memperbesar halaman otomatis saat elemen input yang difokus berukuran font di bawah 16px. `.mint-input` memakai 15px dan textarea Batch Scan 14px.
+- **Perbaikan:** keduanya naik ke **16px** (`src/App.css`). Tidak ada perubahan tata letak lain; ukuran font 16px pada monospace masih memuat 44 karakter alamat di lebar layar ponsel.
+- Versi naik ke **v7.14.2**.
+
+### Verifikasi live v7.14.1 (sebelum perbaikan ini)
+
+Diukur di `https://dadapy04.github.io/rugradar/` dengan parameter anti-cache, tiga perbaikan entri 3 terbukti:
+
+| Yang diperiksa | Sebelum | Sesudah |
+|---|---|---|
+| Footer | `v7.14` | **`v7.14.1`** |
+| Ketik `WIF`, baris pertama | `WIF` Dog wif hat · $22.8 K · skor 57 (tiruan) | **`WIF ✓` dogwifhat · `EKpQ…zcjm` · $4.20 M** → diketuk, hasil **88 / Safe** |
+| Token asli muncul? | tidak ada sama sekali | **ya, di posisi 1** |
+| Tile Volume 24h | `$25.7200` | **`$435.3 K`** (tanpa 4 desimal) |
+| Tombol simulasi jual | `$50 / $250 / $1000`, `$250` tampak terpilih duluan | **`$50 / $250 / $1,000`**, tidak ada yang terpilih |
+| Hasil simulasi | `Sell $50.0000 → 0.693 SOL` | **`Sell $50 → 0.707 SOL back, 0.00% lost`** |
+
+Artinya `lite-api.jup.ag/tokens/v2/search` mengizinkan CORS dari browser — pencarian memakai jalur Jupiter, bukan fallback DexScreener.
+
 ### Status
 
-- Live v7.14 terverifikasi: footer `RugRadar v7.14`, scan BONK asli 81/100 lewat proxy Worker, tanpa error.
-- **Rollback:** `git push -f origin 5a8a9fa:gh-pages` (v7.13).
+- **Skor:** tidak tersentuh oleh v7.14.1 maupun v7.14.2 (hanya fungsi pencarian dan CSS). CI mengukur ulang pada commit ini.
+- **Rollback live:** `git push -f origin 5a8a9fa:gh-pages` (v7.13).
 
 ---
 
