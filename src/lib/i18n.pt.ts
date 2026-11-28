@@ -183,7 +183,7 @@ export const pt: Dict = {
   liqPartBonding: 'curva de bonding (ainda sem pool LP)',
   agePartLow: (v) => `idade do pool ${v}`,
   volPartLow: (v) => `volume 24h ${v}`,
-  lpTitle: 'LP Burn/Lock',
+  lpTitle: 'LP Queimado/Bloqueado',
   lpBurned: (pct) =>
     `${pct} dos tokens LP foram queimados (incinerador) — o dev não pode retirar a liquidez.`,
   lpMostlySafe: (top1) =>
@@ -252,6 +252,8 @@ export const pt: Dict = {
   historyVerdictChanged: (from, to) => `Veredito mudou: ${from} → ${to}`,
   historyBetter: 'a pontuação melhorou',
   historyWorse: 'a pontuação piorou',
+  historyTop10Better: 'a participação do top 10 melhorou',
+  historyTop10Worse: 'a participação do top 10 piorou',
   batchTitle: 'Escaneamento em Lote',
   batchPlaceholder: 'Um endereço mint por linha (máx. 10)',
   batchScanButton: 'Escanear Tudo',

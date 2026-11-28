@@ -535,8 +535,19 @@ a:focus-visible {
 }
 .batch-table {
   width: 100%;
+  /* v7.13 (L15) — fixed layout + breaking on the name cell, so one long
+   * unbroken token name can't push the table past the card at 390px.
+   * Works with the horizontal-scroll wrapper around the table: the
+   * table keeps its fixed columns and the wrapper scrolls if needed. */
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
+}
+.batch-table th:first-child,
+.batch-table td:first-child {
+  width: 55%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .batch-table th,
 .batch-table td {
@@ -726,6 +737,15 @@ a:focus-visible {
 /* v7.12.4 — tiny memecoin prices ($0.000002112) clipped at 19px in the
  * ~175px stat cell on mobile: shrink fluidly, same cap as the other stats. */
 .stat-price strong { font-size: clamp(0.95rem, 3.8vw, 1.25rem); }
+/* v7.13 (M17) — txns stat "12.3K Beli / 45.6K Jual" is ~200px at 19px
+ * nowrap in a ~118px column at 390px, so the sell count was clipped
+ * invisibly by .stat's overflow: hidden. The txns <strong> is the only
+ * one containing .stat-pos/.stat-neg child spans, so :has() targets it
+ * exactly; let it wrap to two lines and shrink fluidly like .stat-price. */
+.stat strong:has(.stat-pos) {
+  white-space: normal;
+  font-size: clamp(0.95rem, 3.8vw, 1.25rem);
+}
 .stat-pos { color: var(--green); }
 .stat-neg { color: var(--red); }
 
@@ -752,7 +772,7 @@ a:focus-visible {
   to { opacity: 1; transform: translateY(0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .result, .check, .gauge-ring, .load-spinner { animation: none !important; transition: none !important; }
+  .result, .check, .gauge-ring, .load-spinner, .sk-gauge, .sk-line, .sk-stat { animation: none !important; transition: none !important; }
 }
 .check-pass { border-left-color: var(--green); }
 .check-warn { border-left-color: var(--amber); }
@@ -772,16 +792,21 @@ a:focus-visible {
   border-radius: 999px;
   color: #fff;
 }
-.check-pass .check-badge { background: var(--green); }
-.check-warn .check-badge { background: var(--amber); }
-.check-fail .check-badge { background: var(--red); }
-.check-info .check-badge { background: var(--muted); }
-.check-na .check-badge { background: var(--muted); }
+/* v7.13 (M16) — badge backgrounds darkened so white 11px/10px bold text
+ * reaches WCAG AA 4.5:1 in BOTH themes (same backgrounds light + dark):
+ * green #15803d 5.02:1, amber #b45309 5.02:1, red #b91c1c 6.47:1,
+ * muted #475569 7.58:1. Previously white on var(--green)/var(--amber)/
+ * var(--red)/var(--muted) was 3.3/3.19/—/— light and 2.28/2.15/3.76/2.56 dark. */
+.check-pass .check-badge { background: #15803d; }
+.check-warn .check-badge { background: #b45309; }
+.check-fail .check-badge { background: #b91c1c; }
+.check-info .check-badge { background: #475569; }
+.check-na .check-badge { background: #475569; }
 /* v7.12.7 — mid-range section (e.g. Liquidity 23/30): muted slate
  * instead of amber, so it never reads as a warning against a green
  * overall verdict. Must come after .check-warn (same specificity). */
 .check-mid { border-left-color: var(--faint); }
-.check-mid .check-badge { background: var(--muted); }
+.check-mid .check-badge { background: #475569; }
 .check-points { margin-left: auto; font-size: 13px; color: var(--muted); font-weight: 600; }
 .check-detail { margin: 8px 0 4px; font-size: 14px; line-height: 1.5; }
 .check-lost { margin: 4px 0; font-size: 13px; font-weight: 700; color: var(--amber-strong); }
@@ -814,8 +839,8 @@ a:focus-visible {
 .sub-finding { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .sub-finding-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .sub-finding-title { font-size: 11px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; color: var(--faint); }
-.sub-finding-badge { font-size: 10px; font-weight: 800; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 999px; color: #fff; background: var(--muted); }
-.sub-finding-badge-warn { background: var(--amber); }
+.sub-finding-badge { font-size: 10px; font-weight: 800; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 999px; color: #fff; background: #475569; /* v7.13 (M16): was var(--muted), white text 2.56:1 in dark — now 7.58:1 both themes */ }
+.sub-finding-badge-warn { background: #b45309; /* v7.13 (M16): was var(--amber), white text 2.15:1 in dark — now 5.02:1 both themes */ }
 .sub-finding-text { margin: 6px 0 0; font-size: 12px; color: var(--text-3); line-height: 1.5; }
 .sub-finding-expl { margin: 4px 0 0; font-size: 12px; color: var(--faint); line-height: 1.5; }
 
@@ -881,6 +906,11 @@ a:focus-visible {
   .gauge-score { font-size: 44px; }
   .input-row { flex-direction: column; }
   .btn-primary { width: 100%; }
+  /* v7.13 (L12) — the batch "Scan Semua" button's .btn-glow wrapper is
+   * an inline-block span that shrink-wraps, so the .btn-primary 100%
+   * above measured against the span, not the card. Make the wrapper a
+   * full-width block on mobile; the button inside is already 100%. */
+  .batch-actions .btn-glow { display: block; width: 100%; }
   .result-head { flex-direction: column; align-items: center; text-align: center; }
   .token-id { flex-direction: column; align-items: center; text-align: center; }
   .mint-line { justify-content: center; }

@@ -30,4 +30,9 @@ jobs:
 
       - name: Scan token referensi (data hidup, informatif)
         continue-on-error: true
-        run: npx tsx scripts/test-scan.ts
+        run: |
+          set -o pipefail
+          npx tsx scripts/test-scan.ts 2>&1 | tee /tmp/scan.log || true
+          echo
+          echo "===== RINGKASAN SKOR ====="
+          grep -E '^(===|Score |Sellable |Top-10 )' /tmp/scan.log || echo "(tidak ada baris skor)"

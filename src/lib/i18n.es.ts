@@ -252,6 +252,8 @@ export const es: Dict = {
   historyVerdictChanged: (from, to) => `Veredicto cambió: ${from} → ${to}`,
   historyBetter: 'la puntuación mejoró',
   historyWorse: 'la puntuación empeoró',
+  historyTop10Better: 'la participación del top 10 mejoró',
+  historyTop10Worse: 'la participación del top 10 empeoró',
   batchTitle: 'Escaneo por Lotes',
   batchPlaceholder: 'Una dirección mint por línea (máx. 10)',
   batchScanButton: 'Escanear Todo',
