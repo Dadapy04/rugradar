@@ -407,12 +407,27 @@ async function rpcCall<T>(
 
 /** Largest token accounts for a mint, via getTokenLargestAccounts.
  *  The proxy is tried FIRST, then the public RPCs.
- *  Returns null when every endpoint fails. */
+ *  v7.11 — ONE retry of the proxy with a short backoff: transient Helius
+ *  429s made BONK flake to 78 on re-scans (holder data unavailable → 79
+ *  cap). A single retry recovers most of them; when the data really
+ *  cannot be read the fail-safe (cap 79 + UNAVAILABLE badge) still
+ *  applies honestly. Returns null when every endpoint fails. */
 async function getLargestAccounts(
   mint: string,
 ): Promise<{ address: string; amount: number }[] | null> {
-  const endpoints = [PROXY_RPC, ...RPC_ENDPOINTS];
-  for (const endpoint of endpoints) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const result = await rpcCall<{
+        value: { address: string; amount: string }[];
+      }>(PROXY_RPC, 'getTokenLargestAccounts', [mint, { commitment: 'confirmed' }]);
+      return result.value.map((a) => ({ address: a.address, amount: Number(a.amount) }));
+    } catch {
+      // First proxy failure: wait briefly — a transient 429 often clears
+      // within a second — then retry the proxy once before falling back.
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 700));
+    }
+  }
+  for (const endpoint of RPC_ENDPOINTS) {
     try {
       const result = await rpcCall<{
         value: { address: string; amount: string }[];
@@ -629,7 +644,11 @@ const CEX_WALLETS: { exchange: string; address: string }[] = [
   { exchange: 'Bybit', address: 'AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2' },
 ];
 
-interface RaydiumPoolInfo {
+/** Pool vaults + LP mint for one AMM pool (Raydium AMM v4 or PumpSwap AMM —
+ *  both expose the same fields: the two reserve vaults, the two mints and
+ *  the LP mint). Used for the holder top-10 vault exclusion and the LP
+ *  burn/lock probe. */
+interface AmmPoolInfo {
   baseVault: string;
   quoteVault: string;
   baseMint: string;
@@ -645,12 +664,12 @@ async function readRaydiumPool(
   poolAddress: string,
   baseTokenAddress: string | undefined,
   quoteTokenAddress: string | undefined,
-): Promise<RaydiumPoolInfo | null> {
+): Promise<AmmPoolInfo | null> {
   const raw = await fetchRawAccount(poolAddress);
   if (!raw || raw.data.length < RAYDIUM_POOL_MIN_LEN) return null;
   const readPubkey = (off: number): string =>
     new PublicKey(raw.data.subarray(off, off + 32)).toBase58();
-  const info: RaydiumPoolInfo = {
+  const info: AmmPoolInfo = {
     baseVault: readPubkey(RAYDIUM_BASE_VAULT_OFFSET),
     quoteVault: readPubkey(RAYDIUM_QUOTE_VAULT_OFFSET),
     baseMint: readPubkey(RAYDIUM_BASE_MINT_OFFSET),
@@ -661,6 +680,59 @@ async function readRaydiumPool(
   if (info.baseVault === zero || info.lpMint === zero) return null;
   // Sanity check: the pool's own mints must match the pair's tokens,
   // otherwise this is not a v4 pool state (e.g. a CPMM/Whirlpool account).
+  if (baseTokenAddress && info.baseMint !== baseTokenAddress) return null;
+  if (quoteTokenAddress && info.quoteMint !== quoteTokenAddress) return null;
+  return info;
+}
+
+// ---------- PumpSwap AMM pool state (v7.11) ----------
+// Layout (Anchor account, 8-byte discriminator, then the Pool fields in
+// IDL order — verified against pump-fun/pump-public-docs AND on-chain
+// for ChokingCat's pool 9Wjy7e5wtrNbtcregNHt9o8J8JMQUwzssKZmdg7FHdET):
+// pool_bump u8 @8, index u16 @9, creator Pubkey @11, base_mint Pubkey @43,
+// quote_mint Pubkey @75, lp_mint Pubkey @107,
+// pool_base_token_account Pubkey @139, pool_quote_token_account Pubkey @171,
+// lp_supply u64 @203, coin_creator Pubkey @211 (data len 301).
+// Program: pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA.
+// Why it matters: a graduated pump token's whole curve supply sits in the
+// pool's base vault (ChokingCat: 98.44% of supply), so without this the
+// top-10 check reads the pool as one giant whale. Same safety pattern as
+// Raydium: owner + length + mint-match checks, then the caller verifies
+// the vault really holds the scanned mint before excluding it.
+const PUMPSWAP_PROGRAM_ID = 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA';
+const PUMPSWAP_POOL_MIN_LEN = 243;
+const PUMPSWAP_BASE_MINT_OFFSET = 43;
+const PUMPSWAP_QUOTE_MINT_OFFSET = 75;
+const PUMPSWAP_LP_MINT_OFFSET = 107;
+const PUMPSWAP_BASE_VAULT_OFFSET = 139;
+const PUMPSWAP_QUOTE_VAULT_OFFSET = 171;
+
+/** Read a PumpSwap AMM pool state account and extract its vaults + LP mint.
+ *  Returns null when the account is not a PumpSwap pool (wrong owner,
+ *  wrong length, or the embedded base/quote mints do not match the
+ *  DexScreener pair) — callers then report "cannot be checked" instead
+ *  of guessing. */
+async function readPumpSwapPool(
+  poolAddress: string,
+  baseTokenAddress: string | undefined,
+  quoteTokenAddress: string | undefined,
+): Promise<AmmPoolInfo | null> {
+  const raw = await fetchRawAccount(poolAddress);
+  if (!raw || raw.owner !== PUMPSWAP_PROGRAM_ID) return null;
+  if (raw.data.length < PUMPSWAP_POOL_MIN_LEN) return null;
+  const readPubkey = (off: number): string =>
+    new PublicKey(raw.data.subarray(off, off + 32)).toBase58();
+  const info: AmmPoolInfo = {
+    baseVault: readPubkey(PUMPSWAP_BASE_VAULT_OFFSET),
+    quoteVault: readPubkey(PUMPSWAP_QUOTE_VAULT_OFFSET),
+    baseMint: readPubkey(PUMPSWAP_BASE_MINT_OFFSET),
+    quoteMint: readPubkey(PUMPSWAP_QUOTE_MINT_OFFSET),
+    lpMint: readPubkey(PUMPSWAP_LP_MINT_OFFSET),
+  };
+  const zero = '11111111111111111111111111111111';
+  if (info.baseVault === zero || info.lpMint === zero) return null;
+  // Sanity check: the pool's own mints must match the pair's tokens,
+  // otherwise this is not a PumpSwap pool state.
   if (baseTokenAddress && info.baseMint !== baseTokenAddress) return null;
   if (quoteTokenAddress && info.quoteMint !== quoteTokenAddress) return null;
   return info;
@@ -687,7 +759,7 @@ export type Token2022ExtensionId =
  *  Also returns the raw numbers (burnedPct / top1Pct) so the risk summary
  *  can state them from structured data instead of parsing the detail text. */
 async function checkLpBurn(
-  pool: RaydiumPoolInfo | null,
+  pool: AmmPoolInfo | null,
   lang: Lang,
 ): Promise<{
   status: CheckStatus;
@@ -1547,17 +1619,26 @@ export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise
   // Price now, because the Jupiter probe (step 4) is sized to ~$1 of it.
   const priceUsd = pair?.priceUsd != null ? Number(pair.priceUsd) : null;
 
-  // 3) Raydium pool derivation (best effort): pool vault for the holder
-  //    exclusion + LP mint for the burn/lock check. Only for Raydium pairs;
-  //    anything else reports "cannot be checked" honestly.
-  let poolInfo: RaydiumPoolInfo | null = null;
+  // 3) AMM pool derivation (best effort): pool vault for the holder
+  //    exclusion + LP mint for the burn/lock check. Raydium AMM v4 and
+  //    PumpSwap AMM both expose vaults + LP mint; anything else reports
+  //    "cannot be checked" honestly.
+  let poolInfo: AmmPoolInfo | null = null;
   let poolVaultAddress: string | null = null;
-  if (pair?.dexId === 'raydium' && pair.pairAddress) {
-    poolInfo = await readRaydiumPool(
-      pair.pairAddress,
-      pair.baseToken?.address,
-      pair.quoteToken?.address,
-    ).catch(() => null);
+  if (pair?.pairAddress) {
+    if (pair.dexId === 'raydium') {
+      poolInfo = await readRaydiumPool(
+        pair.pairAddress,
+        pair.baseToken?.address,
+        pair.quoteToken?.address,
+      ).catch(() => null);
+    } else if (pair.dexId === 'pumpswap') {
+      poolInfo = await readPumpSwapPool(
+        pair.pairAddress,
+        pair.baseToken?.address,
+        pair.quoteToken?.address,
+      ).catch(() => null);
+    }
     if (poolInfo) {
       // Which vault holds the scanned token?
       const vault =

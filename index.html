@@ -20,9 +20,12 @@
       // No stored preference → English default.
       try {
         var rugLang = localStorage.getItem('rugradar-lang');
-        if (rugLang === 'id') {
-          document.documentElement.lang = 'id';
-          document.title = 'RugRadar — Pemindai Keamanan Token Solana';
+        var rugLangs = ['id', 'en', 'zh', 'es', 'pt', 'ru', 'vi'];
+        if (rugLangs.indexOf(rugLang) !== -1) {
+          document.documentElement.lang = rugLang;
+          if (rugLang === 'id') {
+            document.title = 'RugRadar — Pemindai Keamanan Token Solana';
+          }
         } else {
           document.documentElement.lang = 'en';
           document.title = 'RugRadar — Solana Token Safety Scanner';
@@ -39,7 +42,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@600;700;800&family=Space+Grotesk:wght@500;700&display=swap"
       rel="stylesheet"
     />
     <meta property="og:title" content="RugRadar — Solana Token Safety Scanner" />

@@ -1,15 +1,50 @@
 // RugRadar — Indonesian / English strings.
 // All user-visible text lives here so the header toggle can switch the whole
 // UI (and the scanner's check text) without a library.
+// v7.11 — 7 languages: id, en, zh (Simplified Chinese), es (Latin American
+// Spanish), pt (Brazilian Portuguese), ru (Russian), vi (Vietnamese).
+// The 5 non-id/en dicts live in sibling files (i18n.zh.ts etc.) so each
+// language stays independently reviewable; STRINGS assembles them here.
 
-export type Lang = 'id' | 'en';
+import { zh } from './i18n.zh';
+import { es } from './i18n.es';
+import { pt } from './i18n.pt';
+import { ru } from './i18n.ru';
+import { vi } from './i18n.vi';
+
+export type Lang = 'id' | 'en' | 'zh' | 'es' | 'pt' | 'ru' | 'vi';
+
+/** All supported languages, in toggle order. */
+export const LANGS: Lang[] = ['id', 'en', 'zh', 'es', 'pt', 'ru', 'vi'];
+
+/** Native display name per language (used by the header language select). */
+export const LANG_NAMES: Record<Lang, string> = {
+  id: 'Indonesia',
+  en: 'English',
+  zh: '中文',
+  es: 'Español',
+  pt: 'Português',
+  ru: 'Русский',
+  vi: 'Tiếng Việt',
+};
+
+/** BCP 47 locale per language (number/date formatting). */
+export const LOCALES: Record<Lang, string> = {
+  id: 'id-ID',
+  en: 'en-US',
+  zh: 'zh-CN',
+  es: 'es-ES',
+  pt: 'pt-BR',
+  ru: 'ru-RU',
+  vi: 'vi-VN',
+};
 
 export const LANG_STORAGE_KEY = 'rugradar-lang';
 
 export function detectLang(): Lang {
   try {
     const saved = window.localStorage.getItem(LANG_STORAGE_KEY);
-    if (saved === 'en' || saved === 'id') return saved;
+    if (saved != null && (LANGS as string[]).includes(saved)) return saved as Lang;
   } catch {
     // storage unavailable — fall back to English (the default language)
   }
@@ -880,4 +915,9 @@ export const STRINGS: Record<Lang, Dict> = {
     summaryFlagMetadataMutable: 'the token metadata can still be changed by the dev',
     summaryFlagBonding: 'the token is still on the bonding curve and has no DEX LP yet',
   },
+  zh,
+  es,
+  pt,
+  ru,
+  vi,
 };

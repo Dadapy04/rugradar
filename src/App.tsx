@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { scanToken, fmtPct, extractMintCandidate, BASE58_RE, type CheckResult, type ScanResult, type Verdict } from './lib/scanner';
 import { buildRiskSummary } from './lib/summary';
-import { LANG_STORAGE_KEY, STRINGS, detectLang, type Dict, type Lang } from './lib/i18n';
+import { LANGS, LANG_NAMES, LANG_STORAGE_KEY, LOCALES, STRINGS, detectLang, type Dict, type Lang } from './lib/i18n';
 import './App.css';
 
 const EXAMPLES = [
@@ -63,8 +63,21 @@ function badgeLabel(c: CheckResult, t: Dict): string {
   return c.status === 'pass' ? t.badgePass : c.status === 'warn' ? t.badgeWarn : t.badgeFail;
 }
 
+/** Billions suffix per language (USD values). Only Indonesian uses 'M'
+ *  (miliar); every other language uses the crypto-standard 'B'. */
+const BILLION_SUFFIX: Record<Lang, string> = {
+  id: 'M',
+  en: 'B',
+  zh: 'B',
+  es: 'B',
+  pt: 'B',
+  ru: 'B',
+  vi: 'B',
+};
+
 function fmtUsd(n: number | null | undefined, lang: Lang): string {
   if (n == null || Number.isNaN(n)) return '—';
+  const t = STRINGS[lang];
   if (n > 0 && n < 0.01) {
     // Tiny memecoin prices must never render in scientific notation
     // ("$3.08e-9"): up to 10 decimal places, trailing zeros trimmed.
@@ -72,14 +85,14 @@ function fmtUsd(n: number | null | undefined, lang: Lang): string {
   }
   if (n > 0 && n < 1) return `$${Number(n.toPrecision(3))}`;
   if (n >= 1_000_000_000)
-    return `$${(n / 1_000_000_000).toFixed(2)} ${lang === 'en' ? 'B' : 'M'}`; // M = miliar (ID)
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)} ${lang === 'en' ? 'M' : 'jt'}`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)} ${lang === 'en' ? 'K' : 'rb'}`;
+    return `$${(n / 1_000_000_000).toFixed(2)} ${BILLION_SUFFIX[lang]}`;
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)} ${t.million}`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)} ${t.thousand}`;
   return `$${n.toFixed(4)}`;
 }
 
 function fmtNum(n: number, lang: Lang): string {
-  return n.toLocaleString(lang === 'en' ? 'en-US' : 'id-ID', { maximumFractionDigits: 0 });
+  return n.toLocaleString(LOCALES[lang], { maximumFractionDigits: 0 });
 }
 
 function fmtChange(pct: number | null | undefined): string {
@@ -685,24 +698,22 @@ export default function App() {
               </svg>
             )}
           </button>
-          <div className="lang-toggle" role="group" aria-label="Language / Bahasa">
-            <button
-              type="button"
-              className={lang === 'id' ? 'active' : ''}
-              onClick={() => void switchLang('id')}
-              disabled={loading}
-            >
-              ID
-            </button>
-            <button
-              type="button"
-              className={lang === 'en' ? 'active' : ''}
-              onClick={() => void switchLang('en')}
-              disabled={loading}
-            >
-              EN
-            </button>
-          </div>
+          {/* v7.11 — 7-language select (was a 2-button ID/EN toggle).
+            Native <select> keeps it compact in the header on mobile and
+            works with keyboard/screen readers; switching re-scans. */}
+          <select
+            className="lang-select"
+            value={lang}
+            onChange={(e) => void switchLang(e.target.value as Lang)}
+            disabled={loading}
+            aria-label="Language / Bahasa"
+          >
+            {LANGS.map((l) => (
+              <option key={l} value={l}>
+                {LANG_NAMES[l]}
+              </option>
+            ))}
+          </select>
         </div>
         <p className="eyebrow">{t.eyebrow}</p>
         <h1>
@@ -1160,7 +1171,7 @@ export default function App() {
 
             <p className="meta">
               {relativeUpdated(result.scannedAt)} · {t.scannedAt}{' '}
-              {new Date(result.scannedAt).toLocaleString(lang === 'en' ? 'en-US' : 'id-ID')} · RPC:{' '}
+              {new Date(result.scannedAt).toLocaleString(LOCALES[lang])} · RPC:{' '}
               {result.rpcUsed.replace('https://', '').split('?')[0].replace(/\/$/, '')}
               {' · '}
               <span className="meta-links">
@@ -1195,7 +1206,7 @@ export default function App() {
         </p>
         <p>{t.footerDisclaimer}</p>
         {/* v7.10 (B9) — build label, so a bug report can be tied to a version. */}
-        <p className="version">RugRadar v7.10.1</p>
+        <p className="version">RugRadar v7.11</p>
       </footer>
 
       {methodOpen && (

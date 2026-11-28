@@ -1,7 +1,7 @@
 * { box-sizing: border-box; }
 
 :root {
-  --font-display: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Orbitron', 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color-scheme: light;
 
@@ -27,6 +27,8 @@
   --btn-primary-bg: #4f46e5;
   --btn-primary-bg-hover: #4338ca;
   --btn-primary-text: #ffffff;
+  /* v7.11 — cyberpunk neon glow for the Scan button. */
+  --glow: rgba(79, 70, 229, 0.45);
   --focus: #0f172a;
   --focus-ring: rgba(15, 23, 42, 0.12);
   --green: #16a34a;
@@ -79,6 +81,8 @@
   --btn-primary-bg: #818cf8;
   --btn-primary-bg-hover: #a5b4fc;
   --btn-primary-text: #0f172a;
+  /* v7.11 — cyberpunk neon glow for the Scan button. */
+  --glow: rgba(129, 140, 248, 0.55);
   --focus: #93c5fd;
   --focus-ring: rgba(147, 197, 253, 0.25);
   --green: #22c55e;
@@ -135,24 +139,21 @@ body {
   cursor: pointer;
 }
 .theme-toggle:hover { color: var(--text); border-color: var(--border-hover); }
-.lang-toggle {
-  display: flex;
+.lang-select {
+  height: 40px;
+  max-width: 136px;
+  padding: 0 8px;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
-  overflow: hidden;
   background: var(--surface);
-}
-.lang-toggle button {
-  padding: 10px 14px;
-  min-height: 40px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
+  color: var(--text);
   font-size: 13px;
   font-weight: 700;
-  color: var(--muted);
+  cursor: pointer;
+  text-overflow: ellipsis;
 }
-.lang-toggle button.active { background: var(--btn-bg); color: var(--btn-text); }
+.lang-select:hover { border-color: var(--border-hover); }
+.lang-select:disabled { opacity: 0.6; cursor: default; }
 .eyebrow {
   margin: 0 0 10px;
   font-family: var(--font-display);
@@ -162,7 +163,7 @@ body {
   text-transform: uppercase;
   color: var(--accent);
 }
-.hero h1 { font-family: var(--font-display); font-size: 40px; font-weight: 700; margin: 0; letter-spacing: -1px; line-height: 1.1; }
+.hero h1 { font-family: var(--font-display); font-size: 40px; font-weight: 700; margin: 0; letter-spacing: 1px; line-height: 1.1; }
 .hero .accent { color: var(--accent); }
 .tagline { color: var(--text-2); font-size: 16px; line-height: 1.6; margin: 10px auto 0; max-width: 520px; }
 
@@ -241,23 +242,33 @@ a:focus-visible {
 
 /* v7.10.1 — the primary Scan button is indigo in both themes (the
  * brand accent, --btn-primary-bg); the theme-neutral --btn-bg stays for
- * the lang toggle and other neutral buttons. Red stays exclusive to
- * danger signals. */
+ * neutral buttons. Red stays exclusive to danger signals.
+ * v7.11 — cyberpunk restyle: Orbitron uppercase + angular clipped
+ * corners + neon glow (drop-shadow follows the clipped shape, unlike
+ * box-shadow). Gradient endpoints are the same two indigos, so the
+ * text contrast is unchanged (light 6.3:1 white, dark 5.9:1 navy).
+ * Min-height 48px keeps the tap target ≥44px. */
 .btn-primary {
-  padding: 12px 20px;
-  font-size: 15px;
+  min-height: 48px;
+  padding: 12px 22px;
+  font-family: var(--font-display);
+  font-size: 14px;
   font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
   color: var(--btn-primary-text);
-  background: var(--btn-primary-bg);
-  border: none;
-  border-radius: 10px;
+  background: linear-gradient(135deg, var(--btn-primary-bg), var(--btn-primary-bg-hover));
+  border: 1px solid var(--btn-primary-bg);
+  border-radius: 4px;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+  filter: drop-shadow(0 0 8px var(--glow));
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s ease, transform 0.15s ease;
+  transition: filter 0.15s ease, transform 0.15s ease, background 0.15s ease;
 }
-.btn-primary:hover:not(:disabled) { background: var(--btn-primary-bg-hover); }
-.btn-primary:active:not(:disabled) { transform: scale(0.98); }
-.btn-primary:disabled { opacity: 0.6; cursor: default; }
+.btn-primary:hover:not(:disabled) { filter: drop-shadow(0 0 14px var(--glow)); transform: translateY(-1px); }
+.btn-primary:active:not(:disabled) { transform: translateY(0) scale(0.98); filter: drop-shadow(0 0 4px var(--glow)); }
+.btn-primary:disabled { opacity: 0.6; cursor: default; filter: none; }
 
 .examples { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
 .recent { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
@@ -437,7 +448,7 @@ a:focus-visible {
 .gauge-safe svg { filter: drop-shadow(0 0 12px color-mix(in srgb, var(--green) 55%, transparent)); }
 .gauge-warn svg { filter: drop-shadow(0 0 12px color-mix(in srgb, var(--amber) 55%, transparent)); }
 .gauge-danger svg { filter: drop-shadow(0 0 12px color-mix(in srgb, var(--red) 55%, transparent)); }
-.gauge-score { font-family: var(--font-display); font-size: 56px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.gauge-score { font-family: var(--font-display); font-size: 56px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: 1px; }
 .gauge-max { font-size: 15px; fill: var(--faint); }
 /* "Safety Score" label directly under the gauge ring, so the 0–100 number
  * can never be read as a risk score (100 = safest, not most dangerous). */
