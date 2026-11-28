@@ -187,7 +187,14 @@ function fmtUsd(n: number | null | undefined, lang: Lang): string {
   return `$${n.toFixed(4)}`;
 }
 
-function fmtNum(n: number, lang: Lang): string {
+export function fmtNum(n: number, lang: Lang): string {
+  // v7.12.4 — compact for big counts: a full 88-trillion supply
+  // ("87,994,285,43…") clipped out of its ~175px stat cell on mobile
+  // and read like 87 billion. 88.0T / 999.9M / 12.3K, exact below 10K.
+  if (n >= 1_000_000_000_000) return `${(n / 1_000_000_000_000).toFixed(1)}T`;
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 10_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString(LOCALES[lang], { maximumFractionDigits: 0 });
 }
 
@@ -1423,7 +1430,7 @@ export default function App() {
                   <span>{t.marketAgeLabel}</span>
                   <strong>{pairAgeText}</strong>
                 </div>
-                <div className="stat">
+                <div className="stat stat-price">
                   <span>{t.statsPrice}</span>
                   <strong>{fmtUsd(result.priceUsd, lang)}</strong>
                 </div>
@@ -1609,7 +1616,7 @@ export default function App() {
               </button>
               <button
                 type="button"
-                className="btn-secondary"
+                className="btn-secondary share-rescan"
                 onClick={() => void runScan(result.mint)}
                 disabled={loading}
               >
@@ -1751,7 +1758,7 @@ export default function App() {
         </p>
         <p>{t.footerDisclaimer}</p>
         {/* v7.10 (B9) — build label, so a bug report can be tied to a version. */}
-        <p className="version">RugRadar v7.12.3</p>
+        <p className="version">RugRadar v7.12.4</p>
       </footer>
 
       {methodOpen && (

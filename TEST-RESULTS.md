@@ -1673,3 +1673,12 @@ Enam fitur yang diminta Yukka ("kenapa ga semuanya?"), dikerjakan berurutan. Foo
 - `npm run build` (tsc -b + vite, strict) **LOLOS**. Bundle baru `dist/assets/index-BB_dbhou.js`; `mint-short` terkonfirmasi di CSS; `RugRadar v7.12.3` ada; **0 `helius-rpc.com`**.
 - Keyed test: BONK 81 Aman / WIF 88 / POPCAT 88 / PYUSD 0 (BONK kembali 81 — volume di atas $100K).
 - Deploy v7.12.3 via subagent (teks saja), live check + tes HP Yukka masih menunggu — BUKAN final sampai Yukka ngetes sendiri dari HP.
+
+## v7.12.4 — angka terpotong + Rescan (28 Nov ~14:13 WIB, build lokal Bella)
+- 1) Total Supply di kartu TOKEN terpotong ("87,994,285,43—" terbaca seperti 87 miliar, aslinya ~88 triliun): `fmtNum` kini ringkas — ≥1T `88.0T`, ≥1B `x.xB`, ≥1M `999.9M`, ≥10K `12.3K`, di bawah 10K tetap persis (`9,999`). Terverifikasi: 87.994.285.430.000 → `88.0T`, 999.900.000 → `999.9M`, 12.345 → `12.3K`, 500 → `500`. Dipakai juga untuk transaksi 24 jam (beli/jual).
+- 2) Price di kartu MARKET ($0.000002112) mepet/terpotong di kanan: stat Price kini pakai `font-size: clamp(0.95rem, 3.8vw, 1.25rem)` (class baru `stat-price`) — mengecil di HP, tetap sama di desktop.
+- 3) Tombol Rescan sendirian di kiri bawah (5 tombol, grid 2 kolom): class baru `share-rescan` dengan `grid-column: span 2` di mobile (baris bawah penuh) dan `span 4` di desktop ≥900px (grid 4 kolom, baris bawah penuh juga).
+- Sudah ada di v7.12.3 (bukan bagian dari rilis ini, sudah live): sticky dimatikan, alamat mint singkat, disclaimer ganda dihapus.
+- `npm run build` (tsc -b + vite, strict) **LOLOS**. Bundle baru `dist/assets/index-BLmko9Ct.js`; `share-rescan` terkonfirmasi di CSS; `RugRadar v7.12.4` ada; **0 `helius-rpc.com`**.
+- Keyed test: BONK / WIF / POPCAT / PYUSD (lihat output di atas — harus 79–81/88/88/0; BONK goyang 79–81 karena volume di sekitar $100K).
+- Deploy v7.12.4 via subagent (teks saja), live check + tes HP Yukka masih menunggu — BUKAN final sampai Yukka ngetes sendiri dari HP.
