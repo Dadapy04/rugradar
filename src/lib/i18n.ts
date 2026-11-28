@@ -90,6 +90,10 @@ export interface Dict {
   verdictTextBerisikoNoMarket: string;
   badgePass: string;
   badgeWarn: string;
+  // v7.12.7 — neutral mid-range section label (e.g. Liquidity 23/30):
+  // "CUKUP/FAIR" instead of alarming "WASPADA" when the section is
+  // mostly fine but not perfect.
+  badgeFair: string;
   badgeFail: string;
   badgeInfo: string;
   badgeUnavailable: string;
@@ -183,6 +187,9 @@ export interface Dict {
   bundleUnavailable: string;
   bundleTooDeep: string;
   bundleExplanation: string;
+  // v7.12.7 — why a suspected bundle caps the total at 79, shown under
+  // the bundle card so the cap is never a mystery.
+  bundleCapNote: string;
   liquidityLostNoPair: string;
   liqPartLow: (v: string) => string;
   agePartLow: (v: string) => string;
@@ -217,6 +224,9 @@ export interface Dict {
   marketTotalVolumeLabel: string;
   marketTopPairNote: (value: string) => string;
   marketThinWarning: (ratio: string) => string;
+  // v7.12.7 — neutral variant: thin DEX-only ratio but healthy 24h
+  // volume (big coins trade mostly on CEX) — context, not an alarm.
+  marketThinCexNote: (ratio: string) => string;
   txnsBuy: string;
   txnsSell: string;
   // v7 — bonding curve
@@ -244,6 +254,10 @@ export interface Dict {
   historyDiffLabel: string;
   historyNoChange: string;
   historyVerdictChanged: (from: string, to: string) => string;
+  // v7.12.7 — direction word for the history diff line, so "▲ 2 poin"
+  // never leaves a beginner guessing whether up is good or bad.
+  historyBetter: string;
+  historyWorse: string;
   // v7.12 — batch scan
   batchTitle: string;
   batchPlaceholder: string;
@@ -265,6 +279,11 @@ export interface Dict {
   freshLine: (fresh: string, total: string) => string;
   freshNone: string;
   freshUnknown: (n: string) => string;
+  // v7.12.7 — the fresh-wallet finding is its own sub-section inside the
+  // Holders card (own title + INFO/WASPADA mini-badge), so its amber can
+  // never be mistaken for the card's concentration badge.
+  freshSectionTitle: string;
+  freshExplanation: string;
   // v7.12.5 — post-launch inter-wallet transfers (secondary check)
   transfersChecking: string;
   transfersLine: (involved: string, total: string) => string;
@@ -274,6 +293,8 @@ export interface Dict {
   transfersNone: string;
   transfersUnavailable: string;
   transfersSharedSource: string;
+  // v7.12.7 — same sub-section treatment as fresh wallets.
+  transfersSectionTitle: string;
   // v7.12 — LP unlock countdown (secondary check)
   lpUnlockTitle: string;
   lpUnlockWarning: (days: string, date: string) => string;
@@ -384,6 +405,7 @@ export const STRINGS: Record<Lang, Dict> = {
       'Belum ada pool atau likuiditas yang terdeteksi untuk token ini. Itu bukan bukti rug pull — token bisa saja baru diluncurkan — tapi tanpa pasar, harga tidak bisa dinilai dan token sulit dijual. Tunggu sampai ada pool aktif, atau lewati saja.',
     badgePass: 'AMAN',
     badgeWarn: 'WASPADA',
+    badgeFair: 'CUKUP',
     badgeFail: 'BAHAYA',
     badgeInfo: 'INFO',
     badgeUnavailable: 'TIDAK TERSEDIA',
@@ -501,6 +523,8 @@ export const STRINGS: Record<Lang, Dict> = {
       'Riwayat transaksi token ini terlalu panjang untuk dibaca dari browser — pola bundle tidak terverifikasi, cek manual di Bubblemaps / RugCheck.',
     bundleExplanation:
       'Dev nakal menyebar suplai ke banyak dompet lewat satu Jito bundle di slot peluncuran, supaya tiap dompet terlihat kecil. Cek peta klaster di Bubblemaps / RugCheck sebelum percaya skor holder.',
+    bundleCapNote:
+      'Karena dicurigai bundle, skor total dibatasi maksimal 79 — bukan karena ada bahaya yang terbukti, tapi karena distribusinya belum bisa dipercaya.',
     liquidityLostNoPair: 'tidak ada pool / data pasar',
     liqPartLow: (v) => `likuiditas ${v}`,
     agePartLow: (v) => `pool berumur ${v}`,
@@ -541,6 +565,8 @@ export const STRINGS: Record<Lang, Dict> = {
     marketTopPairNote: (v) => `pair utama: ${v}`,
     marketThinWarning: (ratio) =>
       `Likuiditas sangat tipis — hanya ${ratio} dari market cap. Harga bisa bergerak tajam dari trade kecil dan token bisa sulit dijual, meskipun mint/freeze authority sudah dicabut.`,
+    marketThinCexNote: (ratio) =>
+      `Likuiditas DEX terlihat tipis dibanding market cap (${ratio}) — tapi volume 24 jam masih sehat, karena sebagian besar trading token besar terjadi di CEX, bukan di DEX. Rasio ini saja bukan tanda bahaya.`,
     txnsBuy: 'Beli',
     txnsSell: 'Jual',
     bondingCurveLabel: 'Masih di Bonding Curve — belum migrasi ke DEX',
@@ -570,6 +596,8 @@ export const STRINGS: Record<Lang, Dict> = {
     historyDiffLabel: 'Sejak scan terakhir',
     historyNoChange: 'Tidak ada perubahan sejak scan terakhir',
     historyVerdictChanged: (from, to) => `Verdict berubah: ${from} → ${to}`,
+    historyBetter: 'skor membaik',
+    historyWorse: 'skor memburuk',
     batchTitle: 'Scan Banyak Token',
     batchPlaceholder: 'Satu alamat mint per baris (maks 10)',
     batchScanButton: 'Scan Semua',
@@ -588,6 +616,9 @@ export const STRINGS: Record<Lang, Dict> = {
     freshLine: (fresh, total) => `${fresh} dari ${total} holder utama adalah dompet baru (<7 hari)`,
     freshNone: 'Tidak ada holder utama yang dompetnya baru (<7 hari)',
     freshUnknown: (n) => `${n} dompet tidak dapat diperiksa`,
+    freshSectionTitle: 'Umur Dompet Holder',
+    freshExplanation:
+      'Dompet baru saja belum tentu curang — tapi beberapa holder utama yang dibuat bersamaan bisa jadi dikendalikan satu orang.',
     // v7.12.5 — transfer antar-dompet pasca-peluncuran
     transfersChecking: 'Memeriksa transfer antar-dompet…',
     transfersLine: (involved, total) =>
@@ -597,6 +628,7 @@ export const STRINGS: Record<Lang, Dict> = {
     transfersNone: 'Tidak ada transfer antar-dompet terdeteksi di 5 holder teratas',
     transfersUnavailable: 'Transfer antar-dompet tidak dapat diperiksa',
     transfersSharedSource: 'sumber bersama',
+    transfersSectionTitle: 'Transfer Antar-Dompet',
     lpUnlockTitle: 'LP Unlock',
     lpUnlockWarning: (days, date) => `LP unlock dalam ${days} hari (${date})`,
     updatedJustNow: 'Diperbarui baru saja',
@@ -720,6 +752,7 @@ export const STRINGS: Record<Lang, Dict> = {
       'No pool or liquidity was detected for this token. That is not proof of a rug pull — it may have just launched — but without a market the price cannot be assessed and the token is hard to sell. Wait for an active pool, or skip it.',
     badgePass: 'SAFE',
     badgeWarn: 'CAUTION',
+    badgeFair: 'FAIR',
     badgeFail: 'DANGER',
     badgeInfo: 'INFO',
     badgeUnavailable: 'UNAVAILABLE',
@@ -837,6 +870,8 @@ export const STRINGS: Record<Lang, Dict> = {
       'This token has too much transaction history to read from the browser — bundle pattern unverified, check manually on Bubblemaps / RugCheck.',
     bundleExplanation:
       'Rogue devs spread supply across many wallets via a single Jito bundle in the launch slot, so each wallet looks small. Check the cluster map on Bubblemaps / RugCheck before trusting the holder score.',
+    bundleCapNote:
+      'Because a bundle is suspected, the total score is capped at 79 — not because a danger is proven, but because the distribution cannot be trusted yet.',
     liquidityLostNoPair: 'no pool or market data',
     liqPartLow: (v) => `liquidity ${v}`,
     agePartLow: (v) => `pool age ${v}`,
@@ -877,6 +912,8 @@ export const STRINGS: Record<Lang, Dict> = {
     marketTopPairNote: (v) => `primary pair: ${v}`,
     marketThinWarning: (ratio) =>
       `Very thin liquidity — only ${ratio} of market cap. The price can move sharply on small trades and the token may be hard to sell, even with mint/freeze authority revoked.`,
+    marketThinCexNote: (ratio) =>
+      `DEX liquidity looks thin next to market cap (${ratio}) — but 24h volume is still healthy, because most trading of a large token happens on CEX, not on DEX. This ratio alone is not a danger sign.`,
     txnsBuy: 'Buy',
     txnsSell: 'Sell',
     bondingCurveLabel: 'Still on the Bonding Curve — not yet migrated to a DEX',
@@ -906,6 +943,8 @@ export const STRINGS: Record<Lang, Dict> = {
     historyDiffLabel: 'Since last scan',
     historyNoChange: 'No change since last scan',
     historyVerdictChanged: (from, to) => `Verdict changed: ${from} → ${to}`,
+    historyBetter: 'score improved',
+    historyWorse: 'score worsened',
     batchTitle: 'Batch Scan',
     batchPlaceholder: 'One mint address per line (max 10)',
     batchScanButton: 'Scan All',
@@ -924,6 +963,9 @@ export const STRINGS: Record<Lang, Dict> = {
     freshLine: (fresh, total) => `${fresh} of ${total} top holders are fresh wallets (<7 days)`,
     freshNone: 'No top holder is a fresh wallet (<7 days)',
     freshUnknown: (n) => `${n} wallets could not be checked`,
+    freshSectionTitle: 'Holder Wallet Age',
+    freshExplanation:
+      'A fresh wallet alone is not proof of a rug — but several top holders created around the same time can belong to one person.',
     // v7.12.5 — post-launch inter-wallet transfers
     transfersChecking: 'Checking inter-wallet transfers…',
     transfersLine: (involved, total) =>
@@ -933,6 +975,7 @@ export const STRINGS: Record<Lang, Dict> = {
     transfersNone: 'No inter-wallet transfers detected among the top 5 holders',
     transfersUnavailable: 'Inter-wallet transfers could not be checked',
     transfersSharedSource: 'shared source',
+    transfersSectionTitle: 'Inter-Wallet Transfers',
     lpUnlockTitle: 'LP Unlock',
     lpUnlockWarning: (days, date) => `LP unlocks in ${days} days (${date})`,
     updatedJustNow: 'Updated just now',

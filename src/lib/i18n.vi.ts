@@ -39,6 +39,7 @@ export const vi: Dict = {
     'Không phát hiện pool hay thanh khoản nào cho token này. Đó không phải bằng chứng rug pull — token có thể vừa mới ra mắt — nhưng không có thị trường thì không thể định giá và token rất khó bán. Hãy đợi pool hoạt động, hoặc bỏ qua.',
   badgePass: 'AN TOÀN',
   badgeWarn: 'THẬN TRỌNG',
+  badgeFair: 'TẠM ỔN',
   badgeFail: 'NGUY HIỂM',
   badgeInfo: 'THÔNG TIN',
   badgeUnavailable: 'KHÔNG CÓ SẴN',
@@ -156,6 +157,8 @@ export const vi: Dict = {
     'Token này có quá nhiều lịch sử giao dịch để đọc từ trình duyệt — mẫu bundle chưa xác minh, hãy kiểm tra thủ công trên Bubblemaps / RugCheck.',
   bundleExplanation:
     'Dev xấu chia nguồn cung ra nhiều ví qua một Jito Bundle duy nhất ở slot ra mắt, để mỗi ví trông nhỏ. Hãy xem bản đồ cụm ví trên Bubblemaps / RugCheck trước khi tin điểm holder.',
+  bundleCapNote:
+    'Vì nghi ngờ bundle, tổng điểm bị giới hạn tối đa 79 — không phải vì đã chứng minh có nguy hiểm, mà vì sự phân phối chưa đáng tin.',
   liquidityLostNoPair: 'không có pool hay dữ liệu thị trường',
   liqPartLow: (v) => `thanh khoản ${v}`,
   agePartLow: (v) => `tuổi pool ${v}`,
@@ -196,6 +199,8 @@ export const vi: Dict = {
   marketTopPairNote: (v) => `cặp chính: ${v}`,
   marketThinWarning: (ratio) =>
     `Thanh khoản rất mỏng — chỉ ${ratio} vốn hóa thị trường. Giá có thể biến động mạnh chỉ với giao dịch nhỏ và token có thể khó bán, dù mint/freeze authority đã bị thu hồi.`,
+  marketThinCexNote: (ratio) =>
+    `Thanh khoản DEX trông mỏng so với vốn hóa thị trường (${ratio}) — nhưng khối lượng 24h vẫn khỏe, vì phần lớn giao dịch của token lớn diễn ra trên CEX chứ không phải DEX. Chỉ riêng tỷ lệ này không phải là dấu hiệu nguy hiểm.`,
   txnsBuy: 'Mua',
   txnsSell: 'Bán',
   bondingCurveLabel: 'Vẫn Đang Trên Bonding Curve — chưa migrate sang DEX',
@@ -225,6 +230,8 @@ export const vi: Dict = {
   historyDiffLabel: 'Kể từ lần quét trước',
   historyNoChange: 'Không thay đổi kể từ lần quét trước',
   historyVerdictChanged: (from, to) => `Kết luận đã đổi: ${from} → ${to}`,
+  historyBetter: 'điểm đã tăng',
+  historyWorse: 'điểm đã giảm',
   batchTitle: 'Quét Hàng Loạt',
   batchPlaceholder: 'Một địa chỉ mint mỗi dòng (tối đa 10)',
   batchScanButton: 'Quét Tất Cả',
@@ -243,6 +250,9 @@ export const vi: Dict = {
   freshLine: (fresh, total) => `${fresh} trong ${total} holder lớn nhất là ví mới (<7 ngày)`,
   freshNone: 'Không có holder lớn nào là ví mới (<7 ngày)',
   freshUnknown: (n) => `Không thể kiểm tra ${n} ví`,
+  freshSectionTitle: 'Tuổi ví của holder',
+  freshExplanation:
+    'Ví mới tự nó không chứng minh là lừa đảo — nhưng nhiều holder lớn được tạo cùng lúc có thể thuộc về một người.',
   // v7.12.5 — post-launch inter-wallet transfers
   transfersChecking: 'Đang kiểm tra chuyển khoản giữa các ví…',
   transfersLine: (involved, total) =>
@@ -252,6 +262,7 @@ export const vi: Dict = {
   transfersNone: 'Không phát hiện chuyển khoản giữa các ví trong top 5 holder',
   transfersUnavailable: 'Không thể kiểm tra chuyển khoản giữa các ví',
   transfersSharedSource: 'nguồn chung',
+  transfersSectionTitle: 'Chuyển khoản giữa các ví',
   lpUnlockTitle: 'Mở Khóa LP',
   lpUnlockWarning: (days, date) => `LP mở khóa sau ${days} ngày (${date})`,
   updatedJustNow: 'Cập nhật vừa xong',

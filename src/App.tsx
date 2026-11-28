@@ -47,6 +47,10 @@ function historyDiffText(
     parts.push(`top-10 ${d.top10Delta > 0 ? '▲' : '▼'} ${Math.abs(d.top10Delta).toFixed(1)}%`);
   if (d.prevVerdict !== v)
     parts.push(t.historyVerdictChanged(verdictLabel(d.prevVerdict, t), verdictLabel(v, t)));
+  // v7.12.7 — say outright whether the move was good or bad: "▲ 2 poin"
+  // alone leaves a beginner guessing whether up is good for a safety score.
+  if (d.scoreDelta > 0) parts.push(t.historyBetter);
+  else if (d.scoreDelta < 0) parts.push(t.historyWorse);
   return parts.length === 0 ? t.historyNoChange : parts.join(' · ');
 }
 
@@ -156,6 +160,12 @@ function badgeLabel(c: CheckResult, t: Dict): string {
         ? t.holderMid
         : t.holderHigh;
   }
+  // v7.12.7 — a mid-range Liquidity section (e.g. 23/30) must not read
+  // like a verdict that contradicts a green overall verdict: neutral
+  // CUKUP/FAIR instead of alarming WASPADA. Only Liquidity gets this —
+  // a Token-2022 penalty stays alarming (a real, proven risk).
+  if (c.id === 'liquidity' && c.status === 'warn' && c.score >= c.maxScore * 0.6)
+    return t.badgeFair;
   return c.status === 'pass' ? t.badgePass : c.status === 'warn' ? t.badgeWarn : t.badgeFail;
 }
 
@@ -1053,8 +1063,17 @@ export default function App() {
   // the top pair only — this is display-only.
   const displayRatioPct =
     result?.totalLiquidityRatioPct ?? result?.liquidityRatioPct ?? null;
-  const thinLiquidity =
-    result != null && displayRatioPct != null && displayRatioPct < 1;
+  // v7.12.7 — a thin DEX-only ratio on a big coin (BONK 0.4%) reads as a
+  // red alarm next to a green 81 score, but most of a big token's volume
+  // lives on CEX, not DEX. When 24h volume is healthy (≥ $100K — the
+  // same band the score calls full marks), the ratio is neutral context
+  // with a one-line explanation, not an alarm. Only a thin ratio WITH
+  // weak volume keeps the amber warning.
+  const thinRatio = result != null && displayRatioPct != null && displayRatioPct < 1;
+  const totalVol24h = result?.totalVolume24hUsd ?? result?.volume24hUsd ?? null;
+  const healthyVolume = totalVol24h != null && totalVol24h >= 100_000;
+  const thinLiquidity = thinRatio && !healthyVolume;
+  const thinRatioCexNote = thinRatio && healthyVolume;
   const pairAgeText =
     result == null || result.pairAgeDays == null
       ? '—'
@@ -1507,6 +1526,11 @@ export default function App() {
                   {t.marketThinWarning(fmtPct(displayRatioPct))}
                 </p>
               )}
+              {thinRatioCexNote && (
+                <p className="market-note">
+                  {t.marketThinCexNote(fmtPct(displayRatioPct))}
+                </p>
+              )}
             </div>
             <div className="subcard">
               <h4>{t.statsGroupToken}</h4>
@@ -1527,10 +1551,26 @@ export default function App() {
           <div className="subcard checks-card">
             <h3>{t.checksHeading}</h3>
             <ul className="checks">
-              {sortedChecks.map((c, idx) => (
+              {sortedChecks.map((c, idx) => {
+                // v7.12.7 — mid-range Liquidity (e.g. 23/30) gets a muted
+                // card to match its neutral CUKUP/FAIR badge (see badgeLabel).
+                const isMidRange =
+                  c.id === 'liquidity' &&
+                  c.status === 'warn' &&
+                  c.scored &&
+                  c.score >= c.maxScore * 0.6;
+                // v7.12.7 — fresh-wallet warn fires only when ≥3 fresh AND
+                // the pair is at least 7 days old: on a brand-new token,
+                // fresh top holders are normal (everyone just bought in).
+                const freshIsWarn =
+                  freshWallets != null &&
+                  freshWallets !== 'checking' &&
+                  freshWallets.fresh >= 3 &&
+                  (result.pairAgeDays == null || result.pairAgeDays >= 7);
+                return (
                 <li
                   key={c.id}
-                  className={`check check-${c.status}`}
+                  className={`check check-${c.status}${isMidRange ? ' check-mid' : ''}`}
                   style={{ '--i': idx } as CSSProperties}
                 >
                   <div className="check-top">
@@ -1582,33 +1622,49 @@ export default function App() {
                     </button>
                   )}
                   {/* v7.12 — fresh-wallet share in the top holders
-                    (secondary check; ≥3 fresh wallets reads as a warn). */}
+                    (secondary check). v7.12.7: its own sub-section with
+                    a title + INFO/WASPADA mini-badge, so an amber mark is
+                    visibly attached to THIS finding — never mistaken for
+                    the card's concentration badge. */}
                   {c.id === 'holders' && freshWallets === 'checking' && (
                     <p className="check-note">{t.freshChecking}</p>
                   )}
                   {c.id === 'holders' &&
                     freshWallets &&
                     freshWallets !== 'checking' && (
-                      <p
-                        className={`check-note${freshWallets.fresh >= 3 ? ' fresh-warn' : ''}`}
-                      >
-                        {freshWallets.fresh === 0
-                          ? t.freshNone
-                          : t.freshLine(
-                              String(freshWallets.fresh),
-                              String(freshWallets.total),
-                            )}
-                        {freshWallets.unknown > 0
-                          ? ` · ${t.freshUnknown(String(freshWallets.unknown))}`
-                          : ''}
-                      </p>
+                      <div className="sub-finding">
+                        <div className="sub-finding-head">
+                          <span className="sub-finding-title">{t.freshSectionTitle}</span>
+                          <span
+                            className={`sub-finding-badge${freshIsWarn ? ' sub-finding-badge-warn' : ''}`}
+                          >
+                            {freshIsWarn ? t.badgeWarn : t.badgeInfo}
+                          </span>
+                        </div>
+                        <p className="sub-finding-text">
+                          {freshWallets.fresh === 0
+                            ? t.freshNone
+                            : t.freshLine(
+                                String(freshWallets.fresh),
+                                String(freshWallets.total),
+                              )}
+                          {freshWallets.unknown > 0
+                            ? ` · ${t.freshUnknown(String(freshWallets.unknown))}`
+                            : ''}
+                        </p>
+                        {freshWallets.fresh > 0 && (
+                          <p className="sub-finding-expl">{t.freshExplanation}</p>
+                        )}
+                      </div>
                     )}
                   {/* v7.12.5 — post-launch inter-wallet transfers
                     (secondary check; v7.12.6: amber ONLY when the result
                     is suspicious — shared source is the creator, or ≥2
                     holders were fed within 7 days of launch. Otherwise
                     the same count shows as neutral info, with up to 3
-                    concrete from → to examples). */}
+                    concrete from → to examples). v7.12.7: own sub-section
+                    like fresh wallets, so the neutral finding is visibly
+                    separate from the card's amber concentration border. */}
                   {c.id === 'holders' && interWallet === 'checking' && (
                     <p className="check-note">{t.transfersChecking}</p>
                   )}
@@ -1619,20 +1675,30 @@ export default function App() {
                     interWallet &&
                     interWallet !== 'checking' &&
                     interWallet !== 'unavailable' && (
-                      <div
-                        className={`check-note${interWallet.suspicious ? ' fresh-warn' : ''}`}
-                      >
-                        {interWallet.involved === 0
-                          ? t.transfersNone
-                          : interWallet.suspicious
-                            ? t.transfersLine(
-                                String(interWallet.involved),
-                                String(interWallet.total),
-                              )
-                            : t.transfersNeutral(
-                                String(interWallet.involved),
-                                String(interWallet.total),
-                              )}
+                      <div className="sub-finding">
+                        <div className="sub-finding-head">
+                          <span className="sub-finding-title">{t.transfersSectionTitle}</span>
+                          <span
+                            className={`sub-finding-badge${
+                              interWallet.suspicious ? ' sub-finding-badge-warn' : ''
+                            }`}
+                          >
+                            {interWallet.suspicious ? t.badgeWarn : t.badgeInfo}
+                          </span>
+                        </div>
+                        <p className="sub-finding-text">
+                          {interWallet.involved === 0
+                            ? t.transfersNone
+                            : interWallet.suspicious
+                              ? t.transfersLine(
+                                  String(interWallet.involved),
+                                  String(interWallet.total),
+                                )
+                              : t.transfersNeutral(
+                                  String(interWallet.involved),
+                                  String(interWallet.total),
+                                )}
+                        </p>
                         {interWallet.examples.length > 0 && (
                           <ul className="transfer-examples">
                             {interWallet.examples.map((e) => (
@@ -1665,6 +1731,12 @@ export default function App() {
                       </a>
                     </span>
                   )}
+                  {/* v7.12.7 — when a bundle is suspected the total is
+                    capped at 79; say so under the card, so a Caution
+                    verdict on an otherwise clean token is never a mystery. */}
+                  {c.id === 'bundle' && result.bundleSuspected && (
+                    <p className="check-note">{t.bundleCapNote}</p>
+                  )}
                   {/* v7.12 — LP unlock countdown (secondary check; only
                     shown when a future unlock exists). */}
                   {c.id === 'lp' && lpUnlock && lpUnlock !== 'checking' && (
@@ -1682,7 +1754,8 @@ export default function App() {
                     </p>
                   )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </div>
 
@@ -1847,7 +1920,7 @@ export default function App() {
         </p>
         <p>{t.footerDisclaimer}</p>
         {/* v7.10 (B9) — build label, so a bug report can be tied to a version. */}
-        <p className="version">RugRadar v7.12.6</p>
+        <p className="version">RugRadar v7.12.7</p>
       </footer>
 
       {methodOpen && (

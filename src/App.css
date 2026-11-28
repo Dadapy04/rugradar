@@ -546,8 +546,7 @@ a:focus-visible {
   color: var(--faint);
 }
 
-/* v7.12 — fresh-wallet warn line (≥3 fresh top holders) + LP unlock warn. */
-.fresh-warn,
+/* v7.12 — LP unlock warn (a dated future event, genuinely worth amber). */
 .lp-unlock-warn {
   color: var(--amber-strong);
   font-weight: 600;
@@ -702,6 +701,9 @@ a:focus-visible {
 .stat-neg { color: var(--red); }
 
 .market-warn { margin: 12px 0 0; font-size: 13px; font-weight: 600; color: var(--amber-strong); line-height: 1.5; }
+/* v7.12.7 — thin DEX ratio with healthy volume (big coins trade mostly
+ * on CEX): neutral context in muted gray, never an amber alarm. */
+.market-note { margin: 12px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
 
 .checks { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
 .check {
@@ -746,6 +748,11 @@ a:focus-visible {
 .check-fail .check-badge { background: var(--red); }
 .check-info .check-badge { background: var(--muted); }
 .check-na .check-badge { background: var(--muted); }
+/* v7.12.7 — mid-range section (e.g. Liquidity 23/30): muted slate
+ * instead of amber, so it never reads as a warning against a green
+ * overall verdict. Must come after .check-warn (same specificity). */
+.check-mid { border-left-color: var(--faint); }
+.check-mid .check-badge { background: var(--muted); }
 .check-points { margin-left: auto; font-size: 13px; color: var(--muted); font-weight: 600; }
 .check-detail { margin: 8px 0 4px; font-size: 14px; line-height: 1.5; }
 .check-lost { margin: 4px 0; font-size: 13px; font-weight: 700; color: var(--amber-strong); }
@@ -754,6 +761,18 @@ a:focus-visible {
 /* v7.12.5 — concrete from → to examples under the inter-wallet line. */
 .transfer-examples { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 2px; }
 .transfer-examples code { font-size: 12px; color: var(--text-3); background: var(--surface-2); padding: 2px 6px; border-radius: 6px; }
+/* v7.12.7 — sub-findings inside the Holders card (fresh wallets,
+ * inter-wallet transfers): their own dashed divider + small-caps title +
+ * INFO/WASPADA mini-badge, so an amber mark is visibly attached to the
+ * sub-finding itself — never mistaken for the card's own concentration
+ * badge (which stays amber for SEDANG). */
+.sub-finding { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.sub-finding-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sub-finding-title { font-size: 11px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; color: var(--faint); }
+.sub-finding-badge { font-size: 10px; font-weight: 800; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 999px; color: #fff; background: var(--muted); }
+.sub-finding-badge-warn { background: var(--amber); }
+.sub-finding-text { margin: 6px 0 0; font-size: 12px; color: var(--text-3); line-height: 1.5; }
+.sub-finding-expl { margin: 4px 0 0; font-size: 12px; color: var(--faint); line-height: 1.5; }
 
 .top-holders { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 10px; }
 .top-holders > strong { font-size: 13px; color: var(--text-3); }

@@ -42,6 +42,7 @@ export const zh: Dict = {
     '未检测到该代币的任何交易池或流动性。这不是跑路的证据——它可能刚刚上线——但没有市场就无法评估价格，代币也难以卖出。请等待出现活跃交易池，或直接跳过。',
   badgePass: '安全',
   badgeWarn: '警惕',
+  badgeFair: '一般',
   badgeFail: '危险',
   badgeInfo: '信息',
   badgeUnavailable: '不可用',
@@ -159,6 +160,8 @@ export const zh: Dict = {
     '该代币的交易历史太长，无法在浏览器中读取——捆绑模式未验证，请在 Bubblemaps / RugCheck 上手动检查。',
   bundleExplanation:
     '不良开发者通过上线时段的一笔 Jito Bundle，把供应量分散到多个钱包，让每个钱包看起来都很小。在相信持币评分之前，请先在 Bubblemaps / RugCheck 上查看聚类图。',
+  bundleCapNote:
+    '由于疑似捆绑，总分上限为 79——不是因为已证实存在危险，而是因为其分布尚不可信。',
   liquidityLostNoPair: '无交易池或市场数据',
   liqPartLow: (v) => `流动性 ${v}`,
   agePartLow: (v) => `池子年龄 ${v}`,
@@ -199,6 +202,8 @@ export const zh: Dict = {
   marketTopPairNote: (v) => `主交易对：${v}`,
   marketThinWarning: (ratio) =>
     `流动性非常稀薄——仅占市值的 ${ratio}。小额交易就可能导致价格剧烈波动，代币也可能难以卖出，即使 Mint Authority / Freeze Authority 已被撤销。`,
+  marketThinCexNote: (ratio) =>
+    `DEX 流动性相对市值看起来偏低（${ratio}）——但 24 小时交易量仍然健康，因为大市值代币的大部分交易发生在 CEX，而不是 DEX。仅凭这个比率并不是危险信号。`,
   txnsBuy: '买入',
   txnsSell: '卖出',
   bondingCurveLabel: '仍在联合曲线阶段——尚未迁移到 DEX',
@@ -228,6 +233,8 @@ export const zh: Dict = {
   historyDiffLabel: '自上次扫描以来',
   historyNoChange: '自上次扫描以来没有变化',
   historyVerdictChanged: (from, to) => `结论变化：${from} → ${to}`,
+  historyBetter: '评分上升',
+  historyWorse: '评分下降',
   batchTitle: '批量扫描',
   batchPlaceholder: '每行一个 Mint 地址（最多 10 个）',
   batchScanButton: '全部扫描',
@@ -246,6 +253,8 @@ export const zh: Dict = {
   freshLine: (fresh, total) => `${total} 个主要持币者中有 ${fresh} 个是新钱包（<7 天）`,
   freshNone: '没有主要持币者是新钱包（<7 天）',
   freshUnknown: (n) => `有 ${n} 个钱包无法检查`,
+  freshSectionTitle: '持币者钱包年龄',
+  freshExplanation: '新钱包本身并不能证明是骗局——但多个主要持币者同时创建的钱包可能属于同一个人。',
   // v7.12.5 — post-launch inter-wallet transfers
   transfersChecking: '正在检查钱包间转账…',
   transfersLine: (involved, total) => `前 ${total} 大持币者中有 ${involved} 个在上线后转移了代币`,
@@ -253,6 +262,7 @@ export const zh: Dict = {
   transfersNone: '在前 5 大持币者中未检测到钱包间转账',
   transfersUnavailable: '无法检查钱包间转账',
   transfersSharedSource: '共同来源',
+  transfersSectionTitle: '钱包间转账',
   lpUnlockTitle: 'LP 解锁',
   lpUnlockWarning: (days, date) => `LP 将在 ${days} 天后解锁（${date}）`,
   updatedJustNow: '刚刚更新',

@@ -42,6 +42,7 @@ export const pt: Dict = {
     'Nenhum pool ou liquidez foi detectado para este token. Isso não é prova de rug pull — ele pode ter acabado de lançar — mas sem mercado o preço não pode ser avaliado e o token é difícil de vender. Espere um pool ativo, ou pule este token.',
   badgePass: 'SEGURO',
   badgeWarn: 'CUIDADO',
+  badgeFair: 'ACEITÁVEL',
   badgeFail: 'PERIGO',
   badgeInfo: 'INFO',
   badgeUnavailable: 'INDISPONÍVEL',
@@ -159,6 +160,8 @@ export const pt: Dict = {
     'Este token tem histórico de transações grande demais para ler no navegador — padrão de bundle não verificado, confira manualmente no Bubblemaps / RugCheck.',
   bundleExplanation:
     'Devs mal-intencionados espalham o supply por muitas carteiras em um único Jito Bundle no slot de lançamento, para cada carteira parecer pequena. Confira o mapa de clusters no Bubblemaps / RugCheck antes de confiar na pontuação de holders.',
+  bundleCapNote:
+    'Como há suspeita de bundle, a pontuação total é limitada a 79 — não porque um perigo foi comprovado, mas porque a distribuição ainda não é confiável.',
   liquidityLostNoPair: 'sem pool ou dados de mercado',
   liqPartLow: (v) => `liquidez ${v}`,
   agePartLow: (v) => `idade do pool ${v}`,
@@ -199,6 +202,8 @@ export const pt: Dict = {
   marketTopPairNote: (value) => `par principal: ${value}`,
   marketThinWarning: (ratio) =>
     `Liquidez muito fina — apenas ${ratio} do market cap. O preço pode se mover bruscamente com trades pequenos e o token pode ser difícil de vender, mesmo com a mint/freeze authority revogada.`,
+  marketThinCexNote: (ratio) =>
+    `A liquidez DEX parece baixa em relação ao market cap (${ratio}), mas o volume de 24 horas continua saudável, porque a maior parte do trading de um token grande acontece em CEX, não em DEX. Essa proporção por si só não é sinal de perigo.`,
   txnsBuy: 'Compra',
   txnsSell: 'Venda',
   bondingCurveLabel: 'Ainda na Bonding Curve — sem migração para DEX',
@@ -228,6 +233,8 @@ export const pt: Dict = {
   historyDiffLabel: 'Desde a última verificação',
   historyNoChange: 'Sem mudanças desde a última verificação',
   historyVerdictChanged: (from, to) => `Veredito mudou: ${from} → ${to}`,
+  historyBetter: 'a pontuação melhorou',
+  historyWorse: 'a pontuação piorou',
   batchTitle: 'Escaneamento em Lote',
   batchPlaceholder: 'Um endereço mint por linha (máx. 10)',
   batchScanButton: 'Escanear Tudo',
@@ -246,6 +253,9 @@ export const pt: Dict = {
   freshLine: (fresh, total) => `${fresh} de ${total} holders principais são carteiras novas (<7 dias)`,
   freshNone: 'Nenhum holder principal é uma carteira nova (<7 dias)',
   freshUnknown: (n) => `${n} carteiras não puderam ser verificadas`,
+  freshSectionTitle: 'Idade das carteiras',
+  freshExplanation:
+    'Uma carteira nova por si só não prova um golpe, mas vários detentores principais criados ao mesmo tempo podem pertencer a uma mesma pessoa.',
   // v7.12.5 — post-launch inter-wallet transfers
   transfersChecking: 'Verificando transferências entre carteiras…',
   transfersLine: (involved, total) =>
@@ -255,6 +265,7 @@ export const pt: Dict = {
   transfersNone: 'Nenhuma transferência entre carteiras detectada entre os 5 maiores holders',
   transfersUnavailable: 'Não foi possível verificar as transferências entre carteiras',
   transfersSharedSource: 'fonte compartilhada',
+  transfersSectionTitle: 'Transferências entre carteiras',
   lpUnlockTitle: 'Desbloqueio de LP',
   lpUnlockWarning: (days, date) => `O LP desbloqueia em ${days} dias (${date})`,
   updatedJustNow: 'Atualizado agora mesmo',

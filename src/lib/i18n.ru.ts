@@ -38,6 +38,7 @@ export const ru: Dict = {
     'У этого токена не обнаружено ни пула, ни ликвидности. Это не доказательство rug pull — возможно, токен только запустился, — но без рынка цену оценить нельзя, а токен трудно продать. Дождитесь активного пула или пропустите его.',
   badgePass: 'БЕЗОПАСНО',
   badgeWarn: 'ОСТОРОЖНО',
+  badgeFair: 'ПРИЕМЛЕМО',
   badgeFail: 'ОПАСНО',
   badgeInfo: 'ИНФО',
   badgeUnavailable: 'НЕДОСТУПНО',
@@ -154,6 +155,8 @@ export const ru: Dict = {
     'У этого токена слишком длинная история сделок, чтобы прочитать её из браузера — паттерн бандла не подтверждён, проверьте вручную на Bubblemaps / RugCheck.',
   bundleExplanation:
     'Недобросовестные разработчики распределяют предложение по многим кошелькам через один Jito Bundle в слоте запуска, чтобы каждый кошелёк выглядел маленьким. Проверьте карту кластеров на Bubblemaps / RugCheck, прежде чем доверять оценке холдеров.',
+  bundleCapNote:
+    'Поскольку подозревается bundle, общий балл ограничен максимум 79 — не потому, что опасность доказана, а потому, что распределению пока нельзя доверять.',
   liquidityLostNoPair: 'нет пула или рыночных данных',
   liqPartLow: (v) => `ликвидность ${v}`,
   agePartLow: (v) => `возраст пула ${v}`,
@@ -194,6 +197,8 @@ export const ru: Dict = {
   marketTopPairNote: (v) => `основная пара: ${v}`,
   marketThinWarning: (ratio) =>
     `Очень тонкая ликвидность — всего ${ratio} от market cap. Цена может резко двигаться от небольших сделок, а токен может быть трудно продать, даже если Mint Authority и Freeze Authority отозваны.`,
+  marketThinCexNote: (ratio) =>
+    `Ликвидность DEX выглядит тонкой по сравнению с market cap (${ratio}), но объём торгов за 24 часа остаётся здоровым, потому что большая часть торгов крупным токеном проходит на CEX, а не на DEX. Одно это соотношение — не признак опасности.`,
   txnsBuy: 'Покупки',
   txnsSell: 'Продажи',
   bondingCurveLabel: 'Всё ещё на bonding curve — миграция на DEX не произошла',
@@ -223,6 +228,8 @@ export const ru: Dict = {
   historyDiffLabel: 'С прошлого сканирования',
   historyNoChange: 'Без изменений с прошлого сканирования',
   historyVerdictChanged: (from, to) => `Вердикт изменился: ${from} → ${to}`,
+  historyBetter: 'балл вырос',
+  historyWorse: 'балл упал',
   batchTitle: 'Пакетное сканирование',
   batchPlaceholder: 'Один адрес mint в строке (макс. 10)',
   batchScanButton: 'Сканировать всё',
@@ -241,6 +248,9 @@ export const ru: Dict = {
   freshLine: (fresh, total) => `${fresh} из ${total} топ-холдеров — новые кошельки (<7 дней)`,
   freshNone: 'Среди топ-холдеров нет новых кошельков (<7 дней)',
   freshUnknown: (n) => `Не удалось проверить кошельков: ${n}`,
+  freshSectionTitle: 'Возраст кошельков холдеров',
+  freshExplanation:
+    'Новый кошелёк сам по себе не доказывает мошенничество, но несколько крупных держателей, созданных одновременно, могут принадлежать одному человеку.',
   // v7.12.5 — post-launch inter-wallet transfers
   transfersChecking: 'Проверка переводов между кошельками…',
   transfersLine: (involved, total) =>
@@ -250,6 +260,7 @@ export const ru: Dict = {
   transfersNone: 'Переводов между кошельками среди топ-5 холдеров не обнаружено',
   transfersUnavailable: 'Не удалось проверить переводы между кошельками',
   transfersSharedSource: 'общий источник',
+  transfersSectionTitle: 'Переводы между кошельками',
   lpUnlockTitle: 'Разблокировка LP',
   lpUnlockWarning: (days, date) => `Разблокировка LP через ${days} дн. (${date})`,
   updatedJustNow: 'Обновлено только что',

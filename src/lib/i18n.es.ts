@@ -42,6 +42,7 @@ export const es: Dict = {
     'No se detectó ningún pool ni liquidez para este token. Eso no prueba que sea un rug pull — puede que recién se haya lanzado — pero sin mercado no se puede evaluar el precio y es difícil vender el token. Espera a que haya un pool activo o descártalo.',
   badgePass: 'SEGURO',
   badgeWarn: 'PRECAUCIÓN',
+  badgeFair: 'ACEPTABLE',
   badgeFail: 'PELIGRO',
   badgeInfo: 'INFO',
   badgeUnavailable: 'NO DISPONIBLE',
@@ -159,6 +160,8 @@ export const es: Dict = {
     'Este token tiene demasiado historial de transacciones para leerlo desde el navegador: el patrón de bundle no se pudo verificar, revísalo manualmente en Bubblemaps / RugCheck.',
   bundleExplanation:
     'Los devs deshonestos reparten el suministro entre muchas billeteras mediante un solo Jito Bundle en el slot de lanzamiento, para que cada billetera parezca pequeña. Revisa el mapa de clústeres en Bubblemaps / RugCheck antes de confiar en el puntaje de holders.',
+  bundleCapNote:
+    'Como se sospecha un bundle, la puntuación total está limitada a 79, no porque se haya probado un peligro, sino porque la distribución aún no es confiable.',
   liquidityLostNoPair: 'sin pool ni datos de mercado',
   liqPartLow: (v) => `liquidez ${v}`,
   agePartLow: (v) => `antigüedad del pool ${v}`,
@@ -199,6 +202,8 @@ export const es: Dict = {
   marketTopPairNote: (v) => `par principal: ${v}`,
   marketThinWarning: (ratio) =>
     `Liquidez muy baja: solo el ${ratio} del market cap. El precio puede moverse bruscamente con operaciones pequeñas y el token puede ser difícil de vender, incluso con la Mint Authority y la Freeze Authority revocadas.`,
+  marketThinCexNote: (ratio) =>
+    `La liquidez DEX parece baja frente al market cap (${ratio}), pero el volumen de 24 horas sigue siendo saludable, porque la mayor parte del trading de un token grande ocurre en CEX, no en DEX. Esta ratio por sí sola no es una señal de peligro.`,
   txnsBuy: 'Compra',
   txnsSell: 'Venta',
   bondingCurveLabel: 'Aún en la Bonding Curve: todavía no migró a un DEX',
@@ -228,6 +233,8 @@ export const es: Dict = {
   historyDiffLabel: 'Desde el último escaneo',
   historyNoChange: 'Sin cambios desde el último escaneo',
   historyVerdictChanged: (from, to) => `Veredicto cambió: ${from} → ${to}`,
+  historyBetter: 'la puntuación mejoró',
+  historyWorse: 'la puntuación empeoró',
   batchTitle: 'Escaneo por Lotes',
   batchPlaceholder: 'Una dirección mint por línea (máx. 10)',
   batchScanButton: 'Escanear Todo',
@@ -246,6 +253,9 @@ export const es: Dict = {
   freshLine: (fresh, total) => `${fresh} de ${total} holders principales son billeteras nuevas (<7 días)`,
   freshNone: 'Ningún holder principal es una billetera nueva (<7 días)',
   freshUnknown: (n) => `${n} billeteras no se pudieron revisar`,
+  freshSectionTitle: 'Antigüedad de las billeteras',
+  freshExplanation:
+    'Una billetera nueva por sí sola no prueba una estafa, pero varios tenedores principales creados al mismo tiempo pueden pertenecer a una misma persona.',
   // v7.12.5 — post-launch inter-wallet transfers
   transfersChecking: 'Revisando transferencias entre billeteras…',
   transfersLine: (involved, total) =>
@@ -255,6 +265,7 @@ export const es: Dict = {
   transfersNone: 'No se detectaron transferencias entre billeteras entre los 5 holders principales',
   transfersUnavailable: 'No se pudieron revisar las transferencias entre billeteras',
   transfersSharedSource: 'fuente compartida',
+  transfersSectionTitle: 'Transferencias entre billeteras',
   lpUnlockTitle: 'Desbloqueo de LP',
   lpUnlockWarning: (days, date) => `El LP se desbloquea en ${days} días (${date})`,
   updatedJustNow: 'Actualizado hace un momento',
