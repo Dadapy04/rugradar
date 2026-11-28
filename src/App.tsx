@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { scanToken, fmtPct, extractMintCandidate, BASE58_RE, type CheckResult, type ScanResult, type Verdict } from './lib/scanner';
+import { scanToken, checkFreshWallets, checkLpUnlocks, fmtPct, extractMintCandidate, BASE58_RE, type CheckResult, type ScanResult, type Verdict } from './lib/scanner';
 import { buildRiskSummary } from './lib/summary';
 import { LANGS, LANG_NAMES, LANG_STORAGE_KEY, LOCALES, STRINGS, detectLang, type Dict, type Lang } from './lib/i18n';
 import './App.css';
@@ -26,6 +26,97 @@ function verdictText(v: Verdict, t: Dict): string {
     : v === 'Waspada'
       ? t.verdictTextWaspada
       : t.verdictTextBerisiko;
+}
+
+/** v7.12 — one-line "since last scan" diff: score delta, top-10 delta,
+ *  verdict change — or the no-change line when nothing moved. */
+function historyDiffText(
+  d: { scoreDelta: number; top10Delta: number | null; prevVerdict: Verdict },
+  v: Verdict,
+  t: Dict,
+): string {
+  const parts: string[] = [];
+  if (d.scoreDelta !== 0)
+    parts.push(`${d.scoreDelta > 0 ? '▲' : '▼'} ${Math.abs(d.scoreDelta)} ${t.points}`);
+  if (d.top10Delta != null && d.top10Delta !== 0)
+    parts.push(`top-10 ${d.top10Delta > 0 ? '▲' : '▼'} ${Math.abs(d.top10Delta).toFixed(1)}%`);
+  if (d.prevVerdict !== v)
+    parts.push(t.historyVerdictChanged(verdictLabel(d.prevVerdict, t), verdictLabel(v, t)));
+  return parts.length === 0 ? t.historyNoChange : parts.join(' · ');
+}
+
+/** v7.12 — share card: renders the scan result as a 1080×1080 PNG on a
+ *  canvas (dark navy, radar rings, score ring, verdict) — no dependency,
+ *  no server round-trip. Long token names are truncated so the layout
+ *  never overflows. */
+function renderShareCard(res: ScanResult, t: Dict): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const W = 1080;
+    const H = 1080;
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      reject(new Error('no 2d context'));
+      return;
+    }
+    const name = `${res.name} (${upperSymbol(res.symbol)})`;
+    const shortName = name.length > 30 ? `${name.slice(0, 27)}…` : name;
+    const color =
+      res.score >= 80 ? '#22c55e' : res.score >= 50 ? '#f59e0b' : '#ef4444';
+    ctx.fillStyle = '#0a0f1e';
+    ctx.fillRect(0, 0, W, H);
+    // Radar rings behind the score.
+    ctx.strokeStyle = 'rgba(56,189,248,0.16)';
+    ctx.lineWidth = 2;
+    for (const r of [150, 280, 400]) {
+      ctx.beginPath();
+      ctx.arc(W / 2, 520, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 64px system-ui, sans-serif';
+    ctx.fillText('RugRadar', W / 2, 110);
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = '600 28px system-ui, sans-serif';
+    ctx.fillText('Solana Token Safety Scanner', W / 2, 158);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 44px system-ui, sans-serif';
+    ctx.fillText(shortName, W / 2, 252);
+    // Score ring.
+    const cx = W / 2;
+    const cy = 540;
+    const r = 190;
+    ctx.lineWidth = 26;
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + (res.score / 100) * Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.font = '800 150px system-ui, sans-serif';
+    ctx.fillText(String(res.score), cx, cy + 55);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '600 30px system-ui, sans-serif';
+    ctx.fillText('/ 100', cx, cy + 112);
+    // Verdict + footer.
+    ctx.fillStyle = color;
+    ctx.font = '800 58px system-ui, sans-serif';
+    ctx.fillText(verdictLabel(res.verdict, t), cx, 852);
+    ctx.fillStyle = '#64748b';
+    ctx.font = '500 30px system-ui, sans-serif';
+    ctx.fillText('dadapy04.github.io/rugradar', cx, 990);
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error('canvas toBlob failed'))),
+      'image/png',
+    );
+  });
 }
 
 function badgeLabel(c: CheckResult, t: Dict): string {
@@ -197,6 +288,59 @@ function loadRecent(): RecentScan[] {
   }
 }
 
+/** v7.12 — score history: one entry per scan (mint, score, verdict,
+ *  top-10 share, timestamp), newest first, max 20, persisted so a
+ *  re-scan days later can show "since last scan". Separate from the
+ *  recent-scans chips (which hold no top-10 or timestamp). */
+interface HistoryEntry {
+  mint: string;
+  score: number;
+  verdict: Verdict;
+  top10: number | null;
+  at: number; // epoch ms
+}
+
+const HISTORY_KEY = 'rugradar-history';
+const HISTORY_MAX = 20;
+
+function loadHistory(): HistoryEntry[] {
+  try {
+    const raw = window.localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const arr: unknown = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter(
+        (e): e is HistoryEntry =>
+          typeof e === 'object' &&
+          e !== null &&
+          typeof (e as HistoryEntry).mint === 'string' &&
+          typeof (e as HistoryEntry).score === 'number' &&
+          typeof (e as HistoryEntry).verdict === 'string' &&
+          typeof (e as HistoryEntry).at === 'number',
+      )
+      .map((e) => ({
+        ...e,
+        top10: typeof e.top10 === 'number' ? e.top10 : null,
+      }))
+      .slice(0, HISTORY_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function recordHistoryEntry(entry: HistoryEntry): void {
+  try {
+    const next = [entry, ...loadHistory().filter((e) => e.mint !== entry.mint)].slice(
+      0,
+      HISTORY_MAX,
+    );
+    window.localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+  } catch {
+    // storage unavailable — non-fatal
+  }
+}
+
 async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
@@ -284,6 +428,40 @@ export default function App() {
   const [loadingStep, setLoadingStep] = useState(0);
   const [pairNote, setPairNote] = useState<string | null>(null);
   const [recent, setRecent] = useState<RecentScan[]>(() => loadRecent());
+  // v7.12 — diff vs the previous scan of this mint (null = first scan).
+  const [historyDiff, setHistoryDiff] = useState<{
+    scoreDelta: number;
+    top10Delta: number | null;
+    prevVerdict: Verdict;
+    prevAt: number;
+  } | null>(null);
+  // v7.12 — share-card feedback (idle | done | failed).
+  const [shareCardState, setShareCardState] = useState<'idle' | 'done' | 'failed'>('idle');
+  // v7.12 — fresh-wallet share (secondary step; null = not applicable).
+  const [freshWallets, setFreshWallets] = useState<
+    null | 'checking' | { fresh: number; checked: number; unknown: number; total: number }
+  >(null);
+  // v7.12 — LP unlock countdown (secondary step; null = none / n/a).
+  const [lpUnlock, setLpUnlock] = useState<
+    null | 'checking' | { unlockAtMs: number; lockerType: string; lockerCount: number }
+  >(null);
+  const [batchText, setBatchText] = useState('');
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [batchRows, setBatchRows] = useState<
+    {
+      mint: string;
+      status: 'pending' | 'scanning' | 'done' | 'error';
+      name?: string;
+      symbol?: string;
+      score?: number;
+      verdict?: Verdict;
+      error?: string;
+    }[]
+  >([]);
   const [methodOpen, setMethodOpen] = useState(false);
   const [nowTick, setNowTick] = useState(Date.now());
   const resultRef = useRef<HTMLElement | null>(null);
@@ -306,6 +484,55 @@ export default function App() {
     if (!result) return;
     const id = window.setInterval(() => setNowTick(Date.now()), 30_000);
     return () => window.clearInterval(id);
+  }, [result]);
+
+  // v7.12 — fresh-wallet share (secondary step): runs only AFTER a
+  // result renders, never blocks the 3-second scan. Cancelled when a
+  // new scan starts so a stale result never overwrites the new one.
+  useEffect(() => {
+    if (!result || !result.top10Holders || result.top10Holders.length === 0) {
+      setFreshWallets(null);
+      return;
+    }
+    let cancelled = false;
+    setFreshWallets('checking');
+    void checkFreshWallets(result.top10Holders.map((h) => h.address))
+      .then((r) => {
+        if (!cancelled) setFreshWallets(r);
+      })
+      .catch(() => {
+        if (!cancelled) setFreshWallets(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [result]);
+
+  // v7.12 — LP unlock countdown (secondary step): runs only AFTER a
+  // result renders, and only when the LP is not effectively burned
+  // (the LP check's own ≥95% "burned" line — a burned LP has nothing
+  // left to unlock) and the token is not on a bonding curve (no LP
+  // yet). NOTE: burnedPct can be null (e.g. BONK's top pair is an Orca
+  // pool with no LP mint) while RugCheck still reports real lockers on
+  // other pools — null must NOT skip the check. Cancelled when a new
+  // scan starts.
+  useEffect(() => {
+    if (!result || result.isBondingCurve || (result.lpBurnedPct ?? 0) >= 95) {
+      setLpUnlock(null);
+      return;
+    }
+    let cancelled = false;
+    setLpUnlock('checking');
+    void checkLpUnlocks(result.mint)
+      .then((r) => {
+        if (!cancelled) setLpUnlock(r);
+      })
+      .catch(() => {
+        if (!cancelled) setLpUnlock(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [result]);
 
   // Methodology modal (v7.10 B10): Escape closes, Tab is trapped
@@ -368,7 +595,7 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [loading]);
 
-  async function runScan(address: string, useLang: Lang = lang) {
+  async function runScan(address: string, useLang: Lang = lang, recordHistory = true) {
     // A scan is already running (e.g. Enter pressed while the buttons
     // are disabled) — ignore the duplicate so two scans cannot race.
     if (loading) return;
@@ -401,10 +628,41 @@ export default function App() {
     setError(null);
     setResult(null);
     setCopyFailed(false);
+    setShareCardState('idle');
     setPairNote(null);
+    setHistoryDiff(null);
     try {
       const res = await scanToken(addr, useLang);
       setResult(res);
+      // v7.12 — score history + diff: compare against the previous scan
+      // of this mint (if any) BEFORE recording the new one, so the diff
+      // line shows score/top-10 movement and any verdict change. A
+      // language-switch re-scan does not record a new entry (it would
+      // pollute history with a same-minute duplicate) but still shows
+      // the diff against the last real scan.
+      const prev = loadHistory().find((e) => e.mint === res.mint) ?? null;
+      setHistoryDiff(
+        prev
+          ? {
+              scoreDelta: res.score - prev.score,
+              top10Delta:
+                res.top10SharePct != null && prev.top10 != null
+                  ? res.top10SharePct - prev.top10
+                  : null,
+              prevVerdict: prev.verdict,
+              prevAt: prev.at,
+            }
+          : null,
+      );
+      if (recordHistory) {
+        recordHistoryEntry({
+          mint: res.mint,
+          score: res.score,
+          verdict: res.verdict,
+          top10: res.top10SharePct,
+          at: Date.now(),
+        });
+      }
       // The scan may have resolved a pair address to its base token —
       // show the resolved mint in the input and the shareable link.
       setMint(res.mint);
@@ -444,6 +702,88 @@ export default function App() {
     }
   }
 
+  // v7.12 — batch scan: up to 10 mints, one per line, scanned
+  // SEQUENTIALLY (each scan is ~10–25 RPC calls; parallel batches
+  // would trip the proxy's 120 req/min per-IP limit). A row tap loads
+  // the full single-scan result. Each completed row is recorded in the
+  // score history (F1) so a later single scan diffs against it.
+  async function runBatch() {
+    if (batchRunning || loading) return;
+    const tt = STRINGS[lang];
+    const lines = batchText
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (lines.length === 0) {
+      setBatchError(tt.batchEmptyError);
+      return;
+    }
+    if (lines.length > 10) {
+      setBatchError(tt.batchMaxError);
+      return;
+    }
+    setBatchError(null);
+    setBatchRows(lines.map((mint) => ({ mint, status: 'pending' as const })));
+    setBatchRunning(true);
+    setBatchProgress({ done: 0, total: lines.length });
+    let invalid = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i];
+      setBatchRows((prev) =>
+        prev.map((r, j) => (j === i ? { ...r, status: 'scanning' as const } : r)),
+      );
+      const candidate = extractMintCandidate(raw);
+      if (!candidate || !BASE58_RE.test(candidate)) {
+        invalid++;
+        setBatchRows((prev) =>
+          prev.map((r, j) =>
+            j === i ? { ...r, status: 'error' as const, error: tt.invalidError } : r,
+          ),
+        );
+      } else {
+        try {
+          const res = await scanToken(candidate, lang);
+          setBatchRows((prev) =>
+            prev.map((r, j) =>
+              j === i
+                ? {
+                    mint: res.mint,
+                    status: 'done' as const,
+                    name: res.name,
+                    symbol: res.symbol,
+                    score: res.score,
+                    verdict: res.verdict,
+                  }
+                : r,
+            ),
+          );
+          recordHistoryEntry({
+            mint: res.mint,
+            score: res.score,
+            verdict: res.verdict,
+            top10: res.top10SharePct,
+            at: Date.now(),
+          });
+        } catch (e) {
+          setBatchRows((prev) =>
+            prev.map((r, j) =>
+              j === i
+                ? {
+                    ...r,
+                    status: 'error' as const,
+                    error: e instanceof Error ? e.message : tt.genericError,
+                  }
+                : r,
+            ),
+          );
+        }
+      }
+      setBatchProgress({ done: i + 1, total: lines.length });
+    }
+    setBatchRunning(false);
+    if (invalid > 0) setBatchError(tt.batchInvalidLines(invalid));
+  }
+
   // Auto-run a scan when the page is opened with ?mint=<address> (shareable link).
   useEffect(() => {
     const m = new URLSearchParams(window.location.search).get('mint');
@@ -465,8 +805,9 @@ export default function App() {
     }
     document.documentElement.lang = next;
     // Re-scan the current token so check texts switch language too.
+    // (recordHistory=false: a language switch is not a new scan.)
     if (result) {
-      await runScan(result.mint, next);
+      await runScan(result.mint, next, false);
     }
   }
 
@@ -539,6 +880,41 @@ export default function App() {
       flashCopied('link');
     } else {
       setCopyFailed(true);
+    }
+  }
+
+  // v7.12 — share card: render the result as a PNG, then prefer the
+  // native share sheet (mobile) when it accepts files, otherwise
+  // download the file. A cancelled share sheet is not an error.
+  async function shareCardImage() {
+    if (!result) return;
+    try {
+      const blob = await renderShareCard(result, t);
+      const file = new File(
+        [blob],
+        `rugradar-${result.symbol.toLowerCase().replace(/[^a-z0-9]/g, '')}-${result.score}.png`,
+        { type: 'image/png' },
+      );
+      if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: t.shareTitle,
+          text: t.shareText(result.name, upperSymbol(result.symbol), result.score),
+        });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+      }
+      setShareCardState('done');
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return; // user cancelled
+      setShareCardState('failed');
     }
   }
 
@@ -951,7 +1327,15 @@ export default function App() {
           <div className={`verdict-hero ${VERDICT_CLASS[result.verdict]}`}>
             <div className="hero-gauge">
               <Gauge score={result.score} ariaLabel={t.gaugeLabel(result.score)} />
-              <p className="gauge-label">{t.safetyScoreLabel}</p>
+              <p className="gauge-label">
+                {t.safetyScoreLabel}
+                {historyDiff && (
+                  <span className="trend-arrow" aria-hidden="true">
+                    {' '}
+                    {historyDiff.scoreDelta > 0 ? '▲' : historyDiff.scoreDelta < 0 ? '▼' : '•'}
+                  </span>
+                )}
+              </p>
               <p className="risk-level">{t.riskLevelLine(riskLevelText)}</p>
               <button
                 type="button"
@@ -975,6 +1359,16 @@ export default function App() {
               <p className="risk-summary">{buildRiskSummary(result, lang)}</p>
             </div>
           </div>
+
+          {/* v7.12 — score history diff: movement since the previous scan
+            of this mint (score delta, top-10 delta, verdict change). */}
+          {historyDiff && (
+            <p className="history-diff">
+              {t.historyDiffLabel} (
+              {relativeUpdated(new Date(historyDiff.prevAt).toISOString())}):{' '}
+              {historyDiffText(historyDiff, result.verdict, t)}
+            </p>
+          )}
 
           {/* v7.10 (UI 3) — Market and Token are their own sub-cards now. */}
           <div className="subcards">
@@ -1125,6 +1519,28 @@ export default function App() {
                       {t.rescan}
                     </button>
                   )}
+                  {/* v7.12 — fresh-wallet share in the top holders
+                    (secondary check; ≥3 fresh wallets reads as a warn). */}
+                  {c.id === 'holders' && freshWallets === 'checking' && (
+                    <p className="check-note">{t.freshChecking}</p>
+                  )}
+                  {c.id === 'holders' &&
+                    freshWallets &&
+                    freshWallets !== 'checking' && (
+                      <p
+                        className={`check-note${freshWallets.fresh >= 3 ? ' fresh-warn' : ''}`}
+                      >
+                        {freshWallets.fresh === 0
+                          ? t.freshNone
+                          : t.freshLine(
+                              String(freshWallets.fresh),
+                              String(freshWallets.total),
+                            )}
+                        {freshWallets.unknown > 0
+                          ? ` · ${t.freshUnknown(String(freshWallets.unknown))}`
+                          : ''}
+                      </p>
+                    )}
                   {c.id === 'bundle' && (
                     <span className="meta-links">
                       <a
@@ -1142,6 +1558,22 @@ export default function App() {
                         RugCheck
                       </a>
                     </span>
+                  )}
+                  {/* v7.12 — LP unlock countdown (secondary check; only
+                    shown when a future unlock exists). */}
+                  {c.id === 'lp' && lpUnlock && lpUnlock !== 'checking' && (
+                    <p className="check-note lp-unlock-warn">
+                      {t.lpUnlockTitle}:{' '}
+                      {t.lpUnlockWarning(
+                        String(
+                          Math.max(
+                            1,
+                            Math.ceil((lpUnlock.unlockAtMs - Date.now()) / 86_400_000),
+                          ),
+                        ),
+                        new Date(lpUnlock.unlockAtMs).toLocaleDateString(LOCALES[lang]),
+                      )}
+                    </p>
                   )}
                 </li>
               ))}
@@ -1161,6 +1593,13 @@ export default function App() {
               <button
                 type="button"
                 className="btn-secondary"
+                onClick={() => void shareCardImage()}
+              >
+                {shareCardState === 'done' ? t.shareCardSaved : t.shareCardButton}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
                 onClick={() => void runScan(result.mint)}
                 disabled={loading}
               >
@@ -1168,6 +1607,7 @@ export default function App() {
               </button>
             </div>
 
+            {shareCardState === 'failed' && <p className="copy-error">{t.shareCardFailed}</p>}
             {copyFailed && <p className="copy-error">{t.copyFailed}</p>}
 
             <p className="meta">
@@ -1201,13 +1641,105 @@ export default function App() {
         )}
       </main>
 
+      {/* v7.12 — batch scan: up to 10 mints, one per line, sequential
+        with progress; a row tap loads the full single-scan result. */}
+      <section className="card batch-card">
+        <h3>{t.batchTitle}</h3>
+        <label className="field-label" htmlFor="batch-input">
+          {t.batchPlaceholder}
+        </label>
+        <textarea
+          id="batch-input"
+          className="batch-input"
+          value={batchText}
+          onChange={(e) => setBatchText(e.target.value)}
+          rows={4}
+          disabled={batchRunning}
+          placeholder={t.batchPlaceholder}
+        />
+        <div className="batch-actions">
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => void runBatch()}
+            disabled={batchRunning || loading}
+          >
+            {batchRunning && batchProgress
+              ? t.batchScanning(batchProgress.done, batchProgress.total)
+              : t.batchScanButton}
+          </button>
+        </div>
+        {batchError && <p className="error">{batchError}</p>}
+        {batchRows.length > 0 && (
+          <div className="batch-results">
+            <table className="batch-table">
+              <thead>
+                <tr>
+                  <th>{t.batchColToken}</th>
+                  <th>{t.batchColScore}</th>
+                  <th>{t.batchColVerdict}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batchRows.map((row, i) => (
+                  <tr
+                    key={`${row.mint}-${i}`}
+                    className={row.status === 'done' ? 'batch-row-done' : undefined}
+                    onClick={
+                      row.status === 'done' && !batchRunning && !loading
+                        ? () => void runScan(row.mint)
+                        : undefined
+                    }
+                  >
+                    <td>
+                      {row.status === 'done'
+                        ? `${row.name} (${upperSymbol(row.symbol ?? '???')})`
+                        : shortAddr(row.mint)}
+                    </td>
+                    <td>
+                      {row.status === 'done'
+                        ? row.score
+                        : row.status === 'scanning'
+                          ? '…'
+                          : '—'}
+                    </td>
+                    <td>
+                      {row.status === 'done' && row.verdict ? (
+                        <strong
+                          className={
+                            row.verdict === 'Aman'
+                              ? 'batch-safe'
+                              : row.verdict === 'Waspada'
+                                ? 'batch-warn'
+                                : 'batch-danger'
+                          }
+                        >
+                          {verdictLabel(row.verdict, t)}
+                        </strong>
+                      ) : row.status === 'error' ? (
+                        <span className="batch-err">{row.error}</span>
+                      ) : row.status === 'scanning' ? (
+                        t.scanningButton
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="batch-hint">{t.batchClickHint}</p>
+          </div>
+        )}
+      </section>
+
       <footer className="footer">
         <p>
           <strong>{t.footerScoring}</strong>
         </p>
         <p>{t.footerDisclaimer}</p>
         {/* v7.10 (B9) — build label, so a bug report can be tied to a version. */}
-        <p className="version">RugRadar v7.11.2</p>
+        <p className="version">RugRadar v7.12</p>
       </footer>
 
       {methodOpen && (

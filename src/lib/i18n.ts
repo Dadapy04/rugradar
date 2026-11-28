@@ -240,6 +240,34 @@ export interface Dict {
   recentScansTitle: string;
   recentHint: string;
   rescan: string;
+  // v7.12 — score history + diff
+  historyDiffLabel: string;
+  historyNoChange: string;
+  historyVerdictChanged: (from: string, to: string) => string;
+  // v7.12 — batch scan
+  batchTitle: string;
+  batchPlaceholder: string;
+  batchScanButton: string;
+  batchScanning: (done: number, total: number) => string;
+  batchEmptyError: string;
+  batchMaxError: string;
+  batchColToken: string;
+  batchColScore: string;
+  batchColVerdict: string;
+  batchClickHint: string;
+  batchInvalidLines: (n: number) => string;
+  // v7.12 — share card (canvas PNG)
+  shareCardButton: string;
+  shareCardSaved: string;
+  shareCardFailed: string;
+  // v7.12 — fresh-wallet share in top holders (secondary check)
+  freshChecking: string;
+  freshLine: (fresh: string, total: string) => string;
+  freshNone: string;
+  freshUnknown: (n: string) => string;
+  // v7.12 — LP unlock countdown (secondary check)
+  lpUnlockTitle: string;
+  lpUnlockWarning: (days: string, date: string) => string;
   updatedJustNow: string;
   updatedMinutes: (n: number) => string;
   updatedHours: (n: number) => string;
@@ -530,6 +558,29 @@ export const STRINGS: Record<Lang, Dict> = {
     recentScansTitle: 'Terakhir dipindai:',
     recentHint: 'Ketuk chip untuk memindai ulang.',
     rescan: 'Pindai Ulang',
+    historyDiffLabel: 'Sejak scan terakhir',
+    historyNoChange: 'Tidak ada perubahan sejak scan terakhir',
+    historyVerdictChanged: (from, to) => `Verdict berubah: ${from} → ${to}`,
+    batchTitle: 'Scan Banyak Token',
+    batchPlaceholder: 'Satu alamat mint per baris (maks 10)',
+    batchScanButton: 'Scan Semua',
+    batchScanning: (done, total) => `Memindai ${done}/${total}…`,
+    batchEmptyError: 'Masukkan minimal satu alamat mint.',
+    batchMaxError: 'Maksimal 10 token per batch.',
+    batchColToken: 'Token',
+    batchColScore: 'Skor',
+    batchColVerdict: 'Verdict',
+    batchClickHint: 'Ketuk baris untuk hasil lengkap.',
+    batchInvalidLines: (n) => `${n} baris tidak valid dan dilewati.`,
+    shareCardButton: 'Bagikan Gambar',
+    shareCardSaved: 'Gambar tersimpan',
+    shareCardFailed: 'Gagal membuat gambar.',
+    freshChecking: 'Memeriksa umur dompet holder…',
+    freshLine: (fresh, total) => `${fresh} dari ${total} holder utama adalah dompet baru (<7 hari)`,
+    freshNone: 'Tidak ada holder utama yang dompetnya baru (<7 hari)',
+    freshUnknown: (n) => `${n} dompet tidak dapat diperiksa`,
+    lpUnlockTitle: 'LP Unlock',
+    lpUnlockWarning: (days, date) => `LP unlock dalam ${days} hari (${date})`,
     updatedJustNow: 'Diperbarui baru saja',
     updatedMinutes: (n) => `Diperbarui ${n} menit lalu`,
     updatedHours: (n) => `Diperbarui ${n} jam lalu`,
@@ -834,6 +885,29 @@ export const STRINGS: Record<Lang, Dict> = {
     recentScansTitle: 'Recently scanned:',
     recentHint: 'Tap a chip to rescan.',
     rescan: 'Rescan',
+    historyDiffLabel: 'Since last scan',
+    historyNoChange: 'No change since last scan',
+    historyVerdictChanged: (from, to) => `Verdict changed: ${from} → ${to}`,
+    batchTitle: 'Batch Scan',
+    batchPlaceholder: 'One mint address per line (max 10)',
+    batchScanButton: 'Scan All',
+    batchScanning: (done, total) => `Scanning ${done}/${total}…`,
+    batchEmptyError: 'Enter at least one mint address.',
+    batchMaxError: 'Maximum 10 tokens per batch.',
+    batchColToken: 'Token',
+    batchColScore: 'Score',
+    batchColVerdict: 'Verdict',
+    batchClickHint: 'Tap a row for the full result.',
+    batchInvalidLines: (n) => `${n} invalid lines skipped.`,
+    shareCardButton: 'Share Image',
+    shareCardSaved: 'Image saved',
+    shareCardFailed: 'Could not create the image.',
+    freshChecking: 'Checking holder wallet ages…',
+    freshLine: (fresh, total) => `${fresh} of ${total} top holders are fresh wallets (<7 days)`,
+    freshNone: 'No top holder is a fresh wallet (<7 days)',
+    freshUnknown: (n) => `${n} wallets could not be checked`,
+    lpUnlockTitle: 'LP Unlock',
+    lpUnlockWarning: (days, date) => `LP unlocks in ${days} days (${date})`,
     updatedJustNow: 'Updated just now',
     updatedMinutes: (n) => `Updated ${n} min ago`,
     updatedHours: (n) => `Updated ${n} hr ago`,

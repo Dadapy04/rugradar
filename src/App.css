@@ -440,6 +440,99 @@ a:focus-visible {
   line-height: 1.5;
 }
 
+/* v7.12 — score history diff line under the verdict hero. */
+.history-diff {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.5;
+  text-align: center;
+}
+.trend-arrow {
+  font-weight: 700;
+}
+
+/* v7.12 — batch scan card. */
+.batch-card {
+  margin-top: 16px;
+}
+.batch-card h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+.batch-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 96px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-family: ui-monospace, monospace;
+  color: var(--text);
+  background: var(--surface);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 10px;
+  outline: none;
+  resize: vertical;
+}
+.batch-input:focus {
+  border-color: var(--btn-bg);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.batch-actions {
+  margin-top: 12px;
+}
+.batch-results {
+  margin-top: 16px;
+}
+.batch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.batch-table th,
+.batch-table td {
+  padding: 8px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.batch-table th {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.batch-row-done {
+  cursor: pointer;
+}
+.batch-row-done:hover {
+  background: var(--surface-2);
+}
+.batch-safe {
+  color: var(--green);
+}
+.batch-warn {
+  color: var(--amber);
+}
+.batch-danger {
+  color: var(--red);
+}
+.batch-err {
+  font-size: 12px;
+  color: var(--red);
+}
+.batch-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* v7.12 — fresh-wallet warn line (≥3 fresh top holders) + LP unlock warn. */
+.fresh-warn,
+.lp-unlock-warn {
+  color: var(--amber-strong);
+  font-weight: 600;
+}
+
 .gauge { flex-shrink: 0; }
 .gauge svg { width: 180px; height: 180px; display: block; }
 .gauge-track { stroke: var(--gauge-track); }

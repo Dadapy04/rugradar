@@ -1609,3 +1609,46 @@ Tiga isu dari live check v7.10 (~01:04 WIB).
 - `npm run build` (tsc -b + vite, strict) **LOLOS**. Bundle baru `dist/assets/index-B-lXy1el.js`; string `/rugradar/logo.png` terkonfirmasi 1× di bundle; `RugRadar v7.11.2` ada; **0 `helius-rpc.com`**.
 - `npx tsx scripts/test-scan.ts` (keyed, 28 Nov ~12:33 WIB): **BONK 79 Waspada** (TURUN dari 81 — drift data live, BUKAN bug: top-10 tetap 32,2% = holder 18/30, mint 20 + freeze 20; volume 24h $99,0 rb baru saja turun di bawah band $100 rb → liquidity 21/30; pola sama seperti POPCAT 86→88 kemarin, akan balik 81 begitu volume ≥$100 rb), **WIF 88 Aman, POPCAT 88 Aman, PYUSD 0 Berisiko Tinggi**.
 - Deploy v7.11.2 via subagent (teks saja — logo.png sudah ada di gh-pages), live check + tes HP Yukka masih menunggu — BUKAN final sampai Yukka ngetes sendiri dari HP.
+
+## v7.12 — enam fitur baru (28 Nov ~12:46–13:20 WIB, build lokal Bella)
+
+Enam fitur yang diminta Yukka ("kenapa ga semuanya?"), dikerjakan berurutan. Footer: `RugRadar v7.12`.
+
+### F1 — Score history + diff — DONE
+- `localStorage` key `rugradar-history` (maks 20 entri: mint, score, verdict, top-10 %, timestamp). Scan ulang mint yang dikenal menampilkan baris diff "Sejak scan terakhir" (delta skor ▲/▼, delta top-10, perubahan verdict) + panah tren di samping label gauge. Ganti bahasa yang memicu re-scan TIDAK mencatat entri duplikat tapi tetap menampilkan diff.
+- i18n: `historyDiffLabel`, `historyNoChange`, `historyVerdictChanged` di 7 bahasa.
+- Verifikasi: build LOLOS; keyed BONK 81 / WIF 88 / POPCAT 88 / PYUSD 0.
+
+### F2 — Batch scan — DONE (favorit Yukka: "bneran kerasa semuanya seperti bneran canggih")
+- Textarea (satu mint per baris, maks 10) + tombol Scan; scan berurutan dengan progress (`Memindai X/Y…`); tabel kompak (token, skor, verdict); tiap baris bisa diklik untuk memuat hasil lengkap. Batch scan tercatat di history (F1). Memakai `scanToken` yang sudah ada.
+- i18n: `batchTitle`, `batchPlaceholder`, `batchScanButton`, `batchScanning`, `batchEmptyError`, `batchMaxError`, `batchColToken`, `batchColScore`, `batchColVerdict`, `batchClickHint`, `batchInvalidLines` di 7 bahasa.
+- Verifikasi: build LOLOS; keyed BONK 81 / WIF 88 / POPCAT 88 / PYUSD 0.
+
+### F3 — Share card — DONE
+- Tombol "Bagikan Gambar" di kartu hasil: render PNG 1080×1080 via canvas (navy gelap `#0a0f1e`, cincin radar, cincin skor, verdict, footer `dadapy04.github.io/rugradar`; nama panjang dipotong 30 karakter). Prioritas `navigator.share` dengan file, fallback download; share sheet yang dibatalkan bukan error. Tanpa dependensi baru.
+- i18n: `shareCardButton`, `shareCardSaved`, `shareCardFailed` di 7 bahasa.
+- Verifikasi: build LOLOS; keyed BONK 81 / WIF 88 / POPCAT 88 / PYUSD 0.
+
+### F4 — Fresh-wallet share di top holders — DONE
+- `ScanResult.top10Holders` (alamat + share) diisi dari `readTopHolders`. Setelah skor utama tampil (secondary step, tidak memperlambat scan 3 detik), `checkFreshWallets(addresses)` mengecek umur tiap dompet top-10 via `getSignaturesForAddress` (proxy): paging mundur limit 100 sampai batch pendek membuktikan awal riwayat tercapai; fresh = aktivitas pertama < 7 hari. Cap: maks 3 halaman/dompet, 3 dompet paralel; riwayat > 300 tanda tangan = "unknown" (bukan fresh). UI: baris di bawah kartu holders ("X dari 10 holder utama adalah dompet baru (<7 hari)"); ≥3 fresh tampil sebagai warn amber; jumlah unknown ikut disebutkan.
+- i18n: `freshChecking`, `freshLine`, `freshNone`, `freshUnknown` di 7 bahasa.
+- Verifikasi: build LOLOS; keyed BONK 81 / WIF 88 / POPCAT 88 / PYUSD 0. Probe live BONK: `top10Holders` 10 alamat; `checkFreshWallets` → `{fresh: 0, checked: 5, unknown: 5, total: 10}` dalam 1,77 dtk (5 unknown = dompet dengan riwayat > 300 tx — benar untuk BONK yang holder-nya sudah mapan; 0 fresh sesuai ekspektasi). Catatan: dua probe pertama sempat dapat BONK 78 + `top10Holders: null` (holder fetch gagal sesaat, fail-safe 15 + cap 79 bekerja seperti dirancang) — probe ketiga berhasil 81; flake upstream yang sudah dikenal, bukan bug fitur ini.
+
+### F5 — Dev track record — BLOCKED (spike dulu, build dibatalkan)
+- Alamat creator BISA didapat: laporan RugCheck punya field `creator` (ChokingCat `7uZETupu1EZWiKfTnFj4u4czXsr8oZH3DJ1tvCzjLxGu`, BONK `9AhKqLR67hwapvG8SA2JFXaCshXc9nALJjpKaHZrsbkw`) — tapi `creatorTokens` = null di kedua laporan, jadi riwayat deployment creator TIDAK ada di laporan itu.
+- Jalur lain juga buntu lewat proxy: Helius DAS `getAssetsByCreator` → HTTP 403 "RPC method not allowed: getAssetsByCreator" (allowlist proxy hanya 5 method); pump.fun `frontend-api.pump.fun/coins/user-created-coins/...` → HTTP 530 (error 1016); `frontend-api-v2.pump.fun` → `access_denied` (rule 0.18). Endpoint pump.fun juga tidak resmi + hanya mencakup token pump.
+- Keputusan: **BLOCKED — riwayat deployment creator tidak bisa diambil secara andal lewat proxy yang ada; build dilewati, tidak ada data palsu/hardcode.** Yang dibutuhkan agar fitur ini bisa jalan: tambah `getAssetsByCreator` (atau `getAsset` dengan creators) ke allowlist Worker + secret Helius — itu perubahan server, bukan client; atau endpoint creator-history resmi dari pump.fun/RugCheck.
+
+### F6 — LP unlock countdown — DONE
+- `checkLpUnlocks(mint)` membaca `lockers` dari laporan RugCheck (URL sama dengan sinyal insider: proxy dulu, fallback langsung, timeout 10 dtk/URL) + parser murni `parseLpLockers` (nearest future unlock; `unlockDate` 0 = permanen, tanggal lewat = sudah unlock). UI: secondary step setelah hasil tampil, hanya bila token bukan bonding curve DAN LP belum efektif terbakar (burnedPct < 95% — garis "burned" milik cek LP sendiri). Warning amber di bawah kartu LP: "LP unlock dalam X hari (tanggal)".
+- i18n: `lpUnlockTitle`, `lpUnlockWarning` di 7 bahasa.
+- Verifikasi: build LOLOS; keyed BONK 81 / WIF 88 / POPCAT 88 / PYUSD 0. Probe live: **BONK → future unlock NYATA: Streamflow locker `Bv5HSLh4xf1NZGkKh4QjY3WyZc3aqX6gtpjdBEYPZ9X6`, unlockDate 1806757201 (~2 Mar 2027), $187 terkunci** (spike awal hanya melihat locker Jupiter + Raydium dan melewatkan yang ini — parser menemukannya; dump lengkap 14 locker BONK terverifikasi via proxy). ChokingCat → null (lockers `{}`), WIF → null, POPCAT → null, PYUSD → null (tidak ada future unlock — UI diam, benar). Parser sintetik: campuran future +3 hari / +10 hari / 0 / lewat → nearest +3 hari, count 2; `{}` dan null → null.
+- **Perangkap gate yang diperbaiki saat verifikasi:** gate awal (`lpBurnedPct != null && < 100`) akan MELEWATKAN BONK — `lpBurnedPct` BONK = null karena pair teratasnya pool Orca (concentrated liquidity, tidak ada LP mint; cek LP = `na`) padahal RugCheck tetap melaporkan locker di pool Raydium-nya. Gate diubah: skip hanya bila bonding curve ATAU burnedPct ≥ 95%; null = jalankan (burn tidak terukur ≠ terbakar). WIF burnedPct 0 (top-1 LP 8,0%), POPCAT burnedPct 0 (warn, top-1 70,6%) — keduanya lolos gate dengan benar.
+- Catatan: laporan token lama bisa besar (BONK ~2,5 MB) — fetch hanya sebagai secondary step, sekali per scan.
+
+### Verifikasi akhir v7.12
+- `npm run build` (tsc -b + vite, strict) **LOLOS** setelah tiap fitur (F1–F6). Bundle baru `dist/assets/index-1pCVt_eC.js` + CSS `index-BYJwYg41.css`. **0 `helius-rpc.com`** di bundle; string `RugRadar v7.12` terkonfirmasi di hasil build.
+- `npx tsx scripts/test-scan.ts` (keyed, 28 Nov ~13:20 WIB): **BONK 81 Aman, WIF 88 Aman, POPCAT 88 Aman, PYUSD 0 Berisiko Tinggi** — tidak berubah. (BONK sempat 79 di tengah jalan karena drift volume 24h di sekitar band $100 rb — drift yang diharapkan, bukan bug.)
+- Script probe sementara (`scripts/probe-f4-tmp.ts`, `probe-f6*-tmp.ts`) sudah dihapus — tidak masuk build.
+- Shot list demo video diperbarui (`submission-assets/demo-video-script.md`): shot 5 baru = batch scan (paste 4 mint → tabel terisi 81/88/88/0), visual-only; skor ChokingCat diperbaiki 47 → 77.
+- **BELUM DEPLOY / PUSH — build + test lokal saja. Live check browser + tes HP Yukka masih menunggu — BUKAN final sampai Yukka ngetes sendiri dari HP.**

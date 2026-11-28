@@ -76,6 +76,10 @@ export interface ScanResult {
   top10SharePct: number | null;
   top1SharePct: number | null;
   topHolders: TopHolder[] | null;
+  /** Top-10 holder addresses + shares (same source as topHolders, which
+   *  keeps only the top 5 for display) — v7.12 feeds the fresh-wallet
+   *  check (wallet age of each of the 10 largest holders). */
+  top10Holders: TopHolder[] | null;
   /** True when the holder-concentration data could not be read (RPC failure)
    *  — the holder check then scores a neutral 15/30 and the total score is
    *  capped at 79, so the verdict can never be Safe on unverified data. */
@@ -472,6 +476,7 @@ async function readTopHolders(
   top10SharePct: number;
   top1SharePct: number;
   top5: TopHolder[];
+  top10: TopHolder[];
   excludedMatched: string[];
 }> {
   const entries = await getLargestAccounts(mint.toBase58());
@@ -484,14 +489,16 @@ async function readTopHolders(
     exclude.size > 0 ? entries.filter((e) => !exclude.has(e.address)) : entries;
   const top10 = filtered.slice(0, 10).reduce((s, a) => s + a.amount, 0);
   const top1 = filtered[0]?.amount ?? 0;
+  const toHolder = (e: { address: string; amount: number }): TopHolder => ({
+    address: e.address,
+    amount: e.amount,
+    sharePct: supplyRaw > 0 ? (e.amount / supplyRaw) * 100 : 0,
+  });
   return {
     top10SharePct: supplyRaw > 0 ? (top10 / supplyRaw) * 100 : 0,
     top1SharePct: supplyRaw > 0 ? (top1 / supplyRaw) * 100 : 0,
-    top5: filtered.slice(0, 5).map((e) => ({
-      address: e.address,
-      amount: e.amount,
-      sharePct: supplyRaw > 0 ? (e.amount / supplyRaw) * 100 : 0,
-    })),
+    top5: filtered.slice(0, 5).map(toHolder),
+    top10: filtered.slice(0, 10).map(toHolder),
     excludedMatched,
   };
 }
@@ -1566,6 +1573,136 @@ export function fmtPct(n: number | null | undefined): string {
  *  account, and the associated token accounts of verified centralized-
  *  exchange wallets (Solscan-labeled) — pool/burned/exchange supply is not
  *  a single whale. */
+/** v7.12 — fresh-wallet share among the top holders (secondary step,
+ *  runs AFTER the main score renders — never on the scan's critical
+ *  path). A holder is "fresh" when its FIRST on-chain activity is less
+ *  than 7 days ago: getSignaturesForAddress returns newest-first, so we
+ *  page backward (limit 100) until a short batch proves we reached the
+ *  beginning. Wallets whose history is deeper than the page cap (3
+ *  pages = 300 signatures) count as "unknown", not fresh — a wallet
+ *  with 300+ lifetime transactions is not a throwaway fresh wallet, but
+ *  its exact first-activity date is out of cheap reach.
+ *  Cost: usually 1 call per wallet (fresh/insider wallets have short
+ *  histories); capped at 3 calls per wallet, 3 wallets in flight. */
+export async function checkFreshWallets(
+  addresses: string[],
+): Promise<{ fresh: number; checked: number; unknown: number; total: number }> {
+  const FRESH_DAYS = 7;
+  const MAX_PAGES = 3;
+  const PAGE_SIZE = 100;
+  const CONCURRENCY = 3;
+  const cutoff = Date.now() - FRESH_DAYS * 86_400_000;
+
+  async function firstActivity(address: string): Promise<number | null | 'unknown'> {
+    try {
+      let before: string | undefined;
+      let oldest: number | null = null;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const batch =
+          (await rpcCallAny<{ signature: string; blockTime?: number | null }[]>(
+            'getSignaturesForAddress',
+            [address, { limit: PAGE_SIZE, before, commitment: 'confirmed' }],
+          )) ?? [];
+        if (batch.length === 0) break;
+        const last = batch[batch.length - 1];
+        if (last.blockTime != null) oldest = last.blockTime * 1000;
+        if (batch.length < PAGE_SIZE) {
+          // Reached the beginning — oldest is the first activity.
+          return oldest;
+        }
+        before = last.signature;
+      }
+      return 'unknown'; // history deeper than the cap
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  let fresh = 0;
+  let checked = 0;
+  let unknown = 0;
+  for (let i = 0; i < addresses.length; i += CONCURRENCY) {
+    const chunk = addresses.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(chunk.map((a) => firstActivity(a)));
+    for (const r of results) {
+      if (r === 'unknown') unknown++;
+      else {
+        checked++;
+        if (r != null && r >= cutoff) fresh++;
+      }
+    }
+  }
+  return { fresh, checked, unknown, total: addresses.length };
+}
+
+/** v7.12 — LP unlock countdown: pure parser for a RugCheck report's
+ *  `lockers` map. Returns the NEAREST future unlock (unlockDate is a
+ *  unix-seconds timestamp). unlockDate 0 = no unlock date (permanent
+ *  lock); past dates = already unlocked. Null = no future unlock.
+ *  Kept pure so the warning path is unit-testable without a network
+ *  fetch (see scripts/probe-f6-tmp.ts evidence in TEST-RESULTS.md). */
+export function parseLpLockers(
+  lockers: Record<string, { unlockDate?: number; type?: string }> | null | undefined,
+  nowMs = Date.now(),
+): { unlockAtMs: number; lockerType: string; lockerCount: number } | null {
+  if (lockers == null) return null;
+  let best: { unlockAtMs: number; lockerType: string } | null = null;
+  let futureCount = 0;
+  for (const l of Object.values(lockers)) {
+    const ud = typeof l.unlockDate === 'number' ? l.unlockDate : 0;
+    if (ud <= 0) continue; // no unlock date (permanent lock)
+    const ms = ud * 1000;
+    if (ms <= nowMs) continue; // already unlocked
+    futureCount++;
+    if (!best || ms < best.unlockAtMs)
+      best = { unlockAtMs: ms, lockerType: l.type ?? 'locker' };
+  }
+  if (!best) return null;
+  return { unlockAtMs: best.unlockAtMs, lockerType: best.lockerType, lockerCount: futureCount };
+}
+
+/** v7.12 — LP unlock countdown (secondary step): fetches the RugCheck
+ *  report (same URLs as the insider signal — proxy first, direct
+ *  fallback, 10s per URL) and returns the nearest future LP unlock.
+ *  Null when there is no future unlock, no lockers, or the report
+ *  cannot be read — the UI then shows nothing (no noise). The caller
+ *  gates this to tokens whose LP is not effectively burned (≥95% per
+ *  the LP check's own line) and not on a bonding curve. */
+export async function checkLpUnlocks(
+  mint: string,
+): Promise<{ unlockAtMs: number; lockerType: string; lockerCount: number } | null> {
+  type RugCheckReport = {
+    lockers?: Record<string, { unlockDate?: number; type?: string }> | null;
+    error?: unknown;
+  };
+  const REPORT_URLS = [
+    `${PROXY_URL}/rugcheck/${mint}`,
+    `https://api.rugcheck.xyz/v1/tokens/${mint}/report`,
+  ];
+  let json: RugCheckReport | null = null;
+  for (const url of REPORT_URLS) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10_000);
+    try {
+      const res = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal: ctrl.signal,
+      });
+      if (!res.ok) continue;
+      const parsed = (await res.json()) as RugCheckReport;
+      if (parsed != null && typeof parsed === 'object' && parsed.error != null) continue;
+      json = parsed;
+      break;
+    } catch {
+      // try the next URL
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  if (json == null) return null;
+  return parseLpLockers(json.lockers);
+}
+
 export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise<ScanResult> {
   const t = STRINGS[lang];
   // Map a malformed address to the friendly translated message instead of
@@ -1750,6 +1887,7 @@ export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise
   const top10SharePct = holders?.top10SharePct ?? null;
   const top1SharePct = holders?.top1SharePct ?? null;
   const topHolders = holders?.top5 ?? null;
+  const top10Holders = holders?.top10 ?? null;
   const poolVaultExcluded = poolVaultAddress != null;
   const matchedExcluded = new Set(holders?.excludedMatched ?? []);
   const excludedKinds = {
@@ -2006,6 +2144,7 @@ export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise
     top10SharePct,
     top1SharePct,
     topHolders,
+    top10Holders,
     holdersUnavailable,
     bundleSuspected,
     poolVaultExcluded,
