@@ -239,7 +239,10 @@ function fmtUsd(n: number | null | undefined, lang: Lang): string {
     return `$${(n / 1_000_000_000).toFixed(2)} ${BILLION_SUFFIX[lang]}`;
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)} ${t.million}`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)} ${t.thousand}`;
-  return `$${n.toFixed(4)}`;
+  // v7.14.1 — money below $1,000 must never print four decimals
+  // ("$25.7200" beside "$22.8 K", "$50.0000" in the sell line): at most
+  // two, with trailing zeros trimmed, so $50 reads "$50".
+  return `$${n.toFixed(2).replace(/\.?0+$/, '')}`;
 }
 
 export function fmtNum(n: number | null | undefined, lang: Lang): string {
@@ -1633,8 +1636,22 @@ export default function App() {
               >
                 <TokenLogo url={h.logoUrl} symbol={h.symbol} small />
                 <span className="search-hit-main">
-                  <strong>{upperSymbol(h.symbol)}</strong>
-                  <span className="search-hit-name">{h.name}</span>
+                  <strong>
+                    {upperSymbol(h.symbol)}
+                    {/* v7.14.1 — verified tokens carry Jupiter's flag: the
+                      canonical token of a ticker has it, copycats do not. */}
+                    {h.verified && (
+                      <span className="search-hit-verified" aria-hidden="true">
+                        ✓
+                      </span>
+                    )}
+                  </strong>
+                  {/* Two different mints can share a name ("dog in a hat"
+                    appears twice) — the short address tells them apart
+                    before a scan is spent on the wrong one. */}
+                  <span className="search-hit-name">
+                    {h.name} · {h.mint.slice(0, 4)}…{h.mint.slice(-4)}
+                  </span>
                 </span>
                 <span className="search-hit-liq">{fmtUsd(h.liquidityUsd, lang)}</span>
               </button>
@@ -2003,14 +2020,16 @@ export default function App() {
                           <button
                             key={usd}
                             type="button"
-                            className={`chip${sellAmount === usd ? ' chip-active' : ''}`}
+                            className={`chip${
+                              sellAmount === usd && sellSim !== null ? ' chip-active' : ''
+                            }`}
                             onClick={() => {
                               setSellAmount(usd);
                               void runSellSim(usd);
                             }}
                             disabled={sellSim === 'checking'}
                           >
-                            ${usd}
+                            ${fmtNum(usd, lang)}
                           </button>
                         ))}
                       </div>
@@ -2022,7 +2041,7 @@ export default function App() {
                           {sellSim === 'none'
                             ? t.sellSimFailed
                             : t.sellSimResult(
-                                fmtUsd(sellSim.amountUsd, lang),
+                                `$${fmtNum(sellSim.amountUsd, lang)}`,
                                 sellSim.outSol != null
                                   ? `${sellSim.outSol.toFixed(3)} SOL`
                                   : '—',
@@ -2391,7 +2410,7 @@ export default function App() {
         </p>
         <p>{t.footerDisclaimer}</p>
         {/* v7.10 (B9) — build label, so a bug report can be tied to a version. */}
-        <p className="version">RugRadar v7.14</p>
+        <p className="version">RugRadar v7.14.1</p>
       </footer>
 
       {methodOpen && (

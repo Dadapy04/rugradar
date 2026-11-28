@@ -2452,17 +2452,86 @@ export interface DexSearchHit {
   /** Aggregate 24h volume across every Solana pair of this mint. */
   volume24hUsd: number | null;
   pairUrl: string | null;
+  /** True when Jupiter lists the token as verified — the canonical token of a
+   *  ticker routinely carries this flag and copycats do not. Absent on the
+   *  DexScreener fallback, which has no such signal. */
+  verified?: boolean;
 }
 
-/** Look a token up by ticker or name ("WIF", "bonk") via the DexScreener
- *  public search endpoint. Only pairs whose BASE token matches the query
- *  are kept — a search for "WIF" must never return every token merely
- *  quoted in WIF — and the results are collapsed to one row per mint,
- *  deepest liquidity first. Returns [] for no match; throws only when the
- *  API itself fails, which the caller reports as "search unavailable". */
-export async function searchDexTokens(query: string): Promise<DexSearchHit[]> {
-  const q = query.trim();
-  if (q.length < 2) return [];
+/** One row of Jupiter's token search (only the fields read here). */
+interface JupTokenRow {
+  id?: string;
+  name?: string;
+  symbol?: string;
+  icon?: string;
+  liquidity?: number;
+  isVerified?: boolean;
+  stats24h?: { buyVolume?: number; sellVolume?: number };
+}
+
+/** Jupiter's token search — ranked by TOKEN, not by pair. */
+async function searchJupiterTokens(q: string): Promise<DexSearchHit[]> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8_000);
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://lite-api.jup.ag/tokens/v2/search?query=${encodeURIComponent(q)}`,
+      { headers: { Accept: 'application/json' }, signal: ctrl.signal },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) throw new Error(`Jupiter token search HTTP ${res.status}`);
+  const body = (await res.json()) as unknown;
+  if (!Array.isArray(body)) throw new Error('Jupiter token search: unexpected body');
+  const needle = q.toLowerCase().replace(/^\$/, '');
+  const out: { hit: DexSearchHit; rank: number }[] = [];
+  for (const row of body as JupTokenRow[]) {
+    const mint = row.id;
+    if (!mint || !BASE58_RE.test(mint) || NUMERAIRE_MINTS.has(mint)) continue;
+    const symbol = (row.symbol ?? '').replace(/^\$/, '');
+    const name = row.name ?? '';
+    const sym = symbol.toLowerCase();
+    if (!sym.includes(needle) && !name.toLowerCase().includes(needle)) continue;
+    // Exact ticker beats a ticker that merely contains the query, so "WIF"
+    // puts dogwifhat (symbol WIF) above "cat wif sword".
+    const rank = sym === needle ? 2 : sym.includes(needle) ? 1 : 0;
+    const vol = row.stats24h;
+    const volume =
+      typeof vol?.buyVolume === 'number' || typeof vol?.sellVolume === 'number'
+        ? (vol?.buyVolume ?? 0) + (vol?.sellVolume ?? 0)
+        : null;
+    out.push({
+      rank,
+      hit: {
+        mint,
+        name: name || '?',
+        symbol: symbol || '???',
+        logoUrl: row.icon ?? null,
+        liquidityUsd: typeof row.liquidity === 'number' ? row.liquidity : null,
+        volume24hUsd: volume,
+        pairUrl: `https://dexscreener.com/solana/${mint}`,
+        verified: row.isVerified === true,
+      },
+    });
+  }
+  // Exact ticker, then verified, then deepest liquidity: typing "WIF" must
+  // offer dogwifhat (~$4 M, verified) at the top, never a $22 K impostor.
+  return out
+    .sort(
+      (a, b) =>
+        b.rank - a.rank ||
+        Number(b.hit.verified ?? false) - Number(a.hit.verified ?? false) ||
+        (b.hit.liquidityUsd ?? 0) - (a.hit.liquidityUsd ?? 0),
+    )
+    .slice(0, 8)
+    .map((x) => x.hit);
+}
+
+/** DexScreener's PAIR search — the fallback when Jupiter is unreachable.
+ *  Collapsed to one row per mint, deepest liquidity first. */
+async function searchDexPairs(q: string): Promise<DexSearchHit[]> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8_000);
   let res: Response;
@@ -2508,6 +2577,24 @@ export async function searchDexTokens(query: string): Promise<DexSearchHit[]> {
   return [...byMint.values()]
     .sort((a, b) => (b.liquidityUsd ?? 0) - (a.liquidityUsd ?? 0))
     .slice(0, 8);
+}
+
+/** Look a token up by ticker or name ("WIF", "bonk"). Jupiter's token search
+ *  answers first — it ranks by TOKEN, so the canonical token of a ticker comes
+ *  first. DexScreener's pair search is the fallback: ranking by pair, it
+ *  returned eight $10–23 K copycats for "WIF" with the real dogwifhat missing,
+ *  which is the exact wrong-token risk this list exists to remove.
+ *  Returns [] for no match; throws only when both APIs fail. */
+export async function searchDexTokens(query: string): Promise<DexSearchHit[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  try {
+    const hits = await searchJupiterTokens(q);
+    if (hits.length > 0) return hits;
+  } catch {
+    // Jupiter unreachable or CORS-blocked — the pair search still answers.
+  }
+  return searchDexPairs(q);
 }
 
 export interface SellSim {

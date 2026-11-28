@@ -68,9 +68,45 @@ Tidak ada file di `src/`, `index.html`, `public/`, atau `worker/` yang berubah. 
 - CI memanggil RPC/DexScreener/Jupiter hidup; langkah scan dibuat `continue-on-error` supaya gangguan jaringan tidak memerahkan build, sedangkan `npm run build` tetap menggigit.
 - Tidak ada secret baru: kedua workflow hanya memakai `secrets.GITHUB_TOKEN` bawaan GitHub.
 
+---
+
+## Entri 3 — v7.14.1: audit live, tiga bug nyata diperbaiki
+
+- **Tanggal/jam:** `[TTTT-MM-DD HH:MM — diisi manual]`
+- **Cara ditemukan:** bukan dari membaca kode, tapi dari menjalankan v7.14 di live lewat browser terpisah (mengetik `WIF`, menekan `$50`, membuka mode Rinci). Dua fitur yang di entri 2 kunyatakan "belum teruji" ternyata memang bermasalah.
+
+### Bug 1 — pencarian ticker menawarkan token tiruan (paling serius)
+
+Mengetik `WIF` menampilkan 8 kandidat, **semuanya tiruan** ($10–23 rb likuiditas), dan token asli dogwifhat tidak ada. Yang teratas berlabel "Dog wif hat (WIF)" skor **57 Caution** — jadi pengguna mengetik ticker token yang aman (88) lalu diarahkan ke impostor. Penyebab: DexScreener `/latest/dex/search` mengurutkan per **pair**, dan dogwifhat asli hanya muncul sebagai token *quote* di pool CLMM, bukan sebagai base pair.
+
+**Perbaikan:** `searchDexTokens()` kini memakai **Jupiter Token Search** (`lite-api.jup.ag/tokens/v2/search`) lebih dulu — API ini mengurutkan per token dan punya flag `isVerified`. Diuji langsung: query `WIF` mengembalikan `EKpQGS…zcjm` (dogwifhat, verified, likuiditas $4,19 jt, mcap $140 jt) di posisi pertama. Urutan: ticker cocok persis → verified → likuiditas terdalam. Pencarian pair DexScreener tetap jadi fallback bila Jupiter tidak terjangkau. Baris kandidat kini juga menampilkan alamat singkat dan tanda ✓ verified (dua mint berbeda bisa bernama sama, "dog in a hat" muncul dua kali).
+
+### Bug 2 — uang di bawah $1.000 tampil 4 desimal
+
+Terlihat di live: `$25.7200` di tile Volume 24h (bersebelahan dengan `$22.8 K`), `$50.0000` di kalimat simulasi jual, `$776.1800` di kolom likuiditas kandidat. Penyebab: `fmtUsd()` di `App.tsx` berakhir dengan `n.toFixed(4)`. Ini bug lama yang ikut terpakai fitur baru.
+
+**Perbaikan:** `toFixed(2)` dengan nol di belakang dibuang → `$25.72`, `$50`, `$776.18`. Skor tidak tersentuh (skor tidak memakai `fmtUsd`).
+
+### Bug 3 — nominal simulasi jual tidak konsisten dan terlihat sudah jalan
+
+`$250` tampil sebagai pilihan aktif padahal belum ada hasil sama sekali, dan nominal yang sama ditulis tiga cara: tombol `$1000`, kalimat `$1.0 K`, README `$1.000`.
+
+**Perbaikan:** tombol aktif hanya bila memang ada hasil (`sellAmount === usd && sellSim !== null`), dan semua nominal memakai `fmtNum()` sehingga tombol dan kalimat sama-sama menulis `$1.000` (id) / `$1,000` (en).
+
+### Belum diperbaiki (bukan bug fitur v7.14)
+
+- **Kartu LP bertentangan dengan kartu Likuiditas.** Di live, kartu Likuiditas menulis "DEX: raydium" sementara kartu LP menulis "bukan pool Raydium". Pesan itu sebenarnya berlapis ("bukan pool Raydium *atau* data LP tidak bisa dibaca"), tetapi terbaca seperti salah. Penyebabnya probe LP mint gagal, bukan fitur baru. RugCheck untuk token itu justru mengembalikan `lpLockedPct: 100`. Perbaikan sebenarnya butuh menyelidiki probe LP v7.13 — di luar cakupan perbaikan ini dan berisiko ke skor, jadi dicatat saja.
+- **Chip "Recently scanned" kadang tampil kotak kosong** sebelum logo selesai dimuat.
+
+### Hasil tes
+
+- **`npm run build`:** lolos (build pipeline FreeMilk, setelah semua perbaikan ini).
+- **Skor:** BONK **81**, WIF **88**, POPCAT **88**, PYUSD **0** — diukur di runner GitHub pada `c3e5d4d`. Perbaikan v7.14.1 tidak menyentuh jalur skor mana pun; `scanner.ts` hanya diubah pada fungsi pencarian, dan `simulateSell()` tidak dipanggil `scanToken`. CI akan mengukur ulang pada commit ini.
+- **Yang belum diverifikasi:** apakah `lite-api.jup.ag` mengizinkan CORS dari browser. Kalau tidak, kode otomatis jatuh ke DexScreener (perilaku lama), tetapi urutan kandidat akan kembali buruk. Diverifikasi setelah deploy.
+
 ### Status
 
-- **Sudah live:** v7.14 di `main` (`b167808`) dan `gh-pages` (`416aea7`).
+- Live v7.14 terverifikasi: footer `RugRadar v7.14`, scan BONK asli 81/100 lewat proxy Worker, tanpa error.
 - **Rollback:** `git push -f origin 5a8a9fa:gh-pages` (v7.13).
 
 ---

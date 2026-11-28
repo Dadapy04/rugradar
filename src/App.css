@@ -331,6 +331,7 @@ a:focus-visible {
 .search-hit-main strong { font-size: 14px; color: var(--text); }
 .search-hit-name { font-size: 12px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search-hit-liq { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.search-hit-verified { margin-left: 5px; color: #16a34a; font-size: 11px; vertical-align: 1px; }
 
 .error {
   margin-top: 16px;

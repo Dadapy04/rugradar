@@ -53,10 +53,12 @@ npx tsx scripts/test-scan.ts BONK       # satu token saja
 Dua hal yang trader pegang saat FOMO tapi tidak dijawab skor saja:
 
 - **Tanpa alamat mint.** Tulis `WIF` atau `bonk` di kolom yang sama. Kalau
-  teksnya bukan alamat, RugRadar mencari tokennya di DexScreener dan
-  menampilkan daftar kandidat (logo, nama, likuiditas gabungan) — ketuk
-  yang benar untuk memindai. Likuiditas ditampilkan karena ticker yang sama
-  sering dipakai ulang oleh token tiruan.
+  teksnya bukan alamat, RugRadar mencari tokennya lewat Jupiter Token Search
+  (diurutkan per token, jadi token asli muncul lebih dulu), lalu jatuh ke
+  pencarian pair DexScreener kalau Jupiter tidak terjangkau. Kandidat tampil
+  dengan logo, nama, alamat singkat, tanda ✓ untuk token terverifikasi, dan
+  likuiditas gabungan — ketuk yang benar untuk memindai. Alamat singkat dan
+  tanda ✓ ada karena ticker yang sama sering dipakai ulang token tiruan.
 - **Simulasi jual.** Kartu *Bisa Dijual* membuktikan ada rute jual untuk
   ~$1 — itu belum menjawab berapa yang hilang saat keluar dengan nominal
   sungguhan. Tombol $50 / $250 / $1.000 meminta kuotasi jual ke Jupiter
