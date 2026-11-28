@@ -130,6 +130,39 @@ Diukur di `https://dadapy04.github.io/rugradar/` dengan parameter anti-cache, ti
 
 Artinya `lite-api.jup.ag/tokens/v2/search` mengizinkan CORS dari browser — pencarian memakai jalur Jupiter, bukan fallback DexScreener.
 
+### Verifikasi live v7.14.2
+
+Diukur di `https://dadapy04.github.io/rugradar/?v=77213` (viewport ponsel 378×644):
+
+- Footer `RugRadar v7.14.2`. Catatan: load **pertama** dengan parameter anti-cache masih menyajikan build lama dari CDN GitHub Pages; versi baru muncul pada load kedua. Artinya verifikasi versi butuh satu reload, dan Bella sebaiknya reload sekali sebelum menilai.
+- Kolom mint difokus → **tidak ada pembesaran**, tepi kanan kartu utuh, judul dan tombol tema/bahasa lengkap.
+- Textarea Batch Scan difokus → **tidak ada pembesaran**, SCAN ALL dan disclaimer tetap di dalam layar. Sebelum perbaikan, halaman membesar ~14% dan terpotong di kedua sisi.
+- Ketik `WIF` → baris pertama tetap `WIF ✓ / dogwifhat · EKpQ…zcjm / $4.20 M`, diketuk menghasilkan **88 / Safe**. Tidak ada regresi.
+- Tidak ada uncaught script error.
+
+### Cacat yang masih ada (sengaja tidak ditambal)
+
+- **Placeholder kolom mint terpotong** satu karakter lebih awal setelah font naik ke 16px ("Example: DezXAZ8z7Pnrn"). Kosmetik; placeholder hanya contoh.
+- **Kartu LP bisa bertentangan dengan kartu Likuiditas** untuk token pump.fun yang sudah pindah ke Raydium: Likuiditas menulis "DEX: raydium", kartu LP menulis "bukan pool Raydium". Kalimat aslinya berlapis ("bukan pool Raydium *atau* data LP tidak bisa dibaca"), jadi bukan klaim palsu, tapi terbaca seperti salah. Akarnya probe LP v7.13 gagal, bukan fitur baru; memperbaikinya butuh menyentuh jalur skor dan berisiko.
+- **Chip "Recently scanned" kadang menampilkan kotak kosong** sebelum logo selesai dimuat.
+
+### PERHATIAN: skor BONK berubah 81 → 79 (dilaporkan, tidak ditambal)
+
+CI pada `ba533d4` (11:31 UTC) mencetak:
+
+| Token | Sebelum | Sekarang |
+|---|---|---|
+| BONK | 81 | **79 — Waspada** |
+| WIF | 88 | 88 — Aman |
+| POPCAT | 88 | 88 — Aman |
+| PYUSD | 0 | 0 — Berisiko Tinggi |
+
+**Rumus skor tidak disentuh** oleh v7.14, v7.14.1, maupun v7.14.2. Fungsi `scoreConcentration`, `scoreLiquidityParts`, `verdictFor`, dan `rawScore`/`score` di `scanToken()` tidak berubah sedikit pun sejak v7.13. Perubahan yang kusentuh hanya: fungsi pencarian baru, `simulateSell()` (tidak dipanggil `scanToken`), satu string alasan poin likuiditas, dan CSS.
+
+**Dugaanku:** 79 adalah **tepat batas fail-safe** (`const score = holdersUnavailable || bundleSuspected ? Math.min(79, rawScore) : rawScore`). Jadi kemungkinan besar salah satu gerbang aktif pada run ini — data holder yang gagal dibaca, atau sinyal bundle/jaringan insider RugCheck melewati 15% — bukan rumusnya yang berubah. Ini bergantung data hidup, jadi bisa berbeda antar run.
+
+**Belum bisa kupastikan** karena log yang terbaca hanya ekor (JSON PYUSD). Untuk memastikan, seseorang perlu menjalankan `npx tsx scripts/test-scan.ts BONK` dan membaca nilai `holdersUnavailable`, `bundleSuspected`, dan `top10SharePct` pada token itu. Kalau `bundleSuspected: true`, angka 79 memang benar menurut aturan yang sudah ada sejak v7.5/v7.6, dan README yang menulis 81 perlu diperbarui — bukan kodenya. **Aturan 4 melarang mengubah rumus, jadi tidak kuubah; ini keputusan pemilik.**
+
 ### Status
 
 - **Skor:** tidak tersentuh oleh v7.14.1 maupun v7.14.2 (hanya fungsi pencarian dan CSS). CI mengukur ulang pada commit ini.
