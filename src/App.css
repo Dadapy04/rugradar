@@ -27,8 +27,8 @@
   --btn-primary-bg: #4f46e5;
   --btn-primary-bg-hover: #4338ca;
   --btn-primary-text: #ffffff;
-  /* v7.11 — cyberpunk neon glow for the Scan button. */
-  --glow: rgba(79, 70, 229, 0.45);
+  /* v7.12.1 — Scan button glow is now layered cyan (see .btn-primary);
+   * the old single indigo --glow was invisible against the button. */
   --focus: #0f172a;
   --focus-ring: rgba(15, 23, 42, 0.12);
   --green: #16a34a;
@@ -81,8 +81,7 @@
   --btn-primary-bg: #818cf8;
   --btn-primary-bg-hover: #a5b4fc;
   --btn-primary-text: #0f172a;
-  /* v7.11 — cyberpunk neon glow for the Scan button. */
-  --glow: rgba(129, 140, 248, 0.55);
+  /* v7.12.1 — Scan button glow is now layered cyan (see .btn-primary). */
   --focus: #93c5fd;
   --focus-ring: rgba(147, 197, 253, 0.25);
   --green: #22c55e;
@@ -262,14 +261,20 @@ a:focus-visible {
   border: 1px solid var(--btn-primary-bg);
   border-radius: 4px;
   clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
-  filter: drop-shadow(0 0 8px var(--glow));
+  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.9)) drop-shadow(0 0 20px rgba(34, 211, 238, 0.55)) drop-shadow(0 0 42px rgba(79, 70, 229, 0.4));
+  animation: scan-glow 2.4s ease-in-out infinite;
   cursor: pointer;
   white-space: nowrap;
   transition: filter 0.15s ease, transform 0.15s ease, background 0.15s ease;
 }
-.btn-primary:hover:not(:disabled) { filter: drop-shadow(0 0 14px var(--glow)); transform: translateY(-1px); }
-.btn-primary:active:not(:disabled) { transform: translateY(0) scale(0.98); filter: drop-shadow(0 0 4px var(--glow)); }
-.btn-primary:disabled { opacity: 0.6; cursor: default; filter: none; }
+@keyframes scan-glow {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.9)) drop-shadow(0 0 20px rgba(34, 211, 238, 0.55)) drop-shadow(0 0 42px rgba(79, 70, 229, 0.4)); }
+  50% { filter: drop-shadow(0 0 10px rgba(34, 211, 238, 1)) drop-shadow(0 0 32px rgba(34, 211, 238, 0.75)) drop-shadow(0 0 60px rgba(79, 70, 229, 0.55)); }
+}
+.btn-primary:hover:not(:disabled) { filter: drop-shadow(0 0 10px rgba(34, 211, 238, 1)) drop-shadow(0 0 32px rgba(34, 211, 238, 0.8)) drop-shadow(0 0 64px rgba(79, 70, 229, 0.6)); transform: translateY(-1px); animation: none; }
+.btn-primary:active:not(:disabled) { transform: translateY(0) scale(0.98); filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.7)); animation: none; }
+.btn-primary:disabled { opacity: 0.6; cursor: default; filter: none; animation: none; }
+@media (prefers-reduced-motion: reduce) { .btn-primary { animation: none; } }
 
 .examples { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
 .recent { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }

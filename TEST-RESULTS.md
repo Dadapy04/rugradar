@@ -1652,3 +1652,9 @@ Enam fitur yang diminta Yukka ("kenapa ga semuanya?"), dikerjakan berurutan. Foo
 - Script probe sementara (`scripts/probe-f4-tmp.ts`, `probe-f6*-tmp.ts`) sudah dihapus — tidak masuk build.
 - Shot list demo video diperbarui (`submission-assets/demo-video-script.md`): shot 5 baru = batch scan (paste 4 mint → tabel terisi 81/88/88/0), visual-only; skor ChokingCat diperbaiki 47 → 77.
 - **BELUM DEPLOY / PUSH — build + test lokal saja. Live check browser + tes HP Yukka masih menunggu — BUKAN final sampai Yukka ngetes sendiri dari HP.**
+
+## v7.12.1 — glow tombol Scan diperkuat (28 Nov ~13:35 WIB, build lokal Bella)
+- BUG (laporan verifikasi live v7.11 + v7.12): glow neon tombol Scan tidak kelihatan — penyebab: satu layer `drop-shadow(0 0 8px)` warna indigo sama dengan tombol + alpha rendah. Perbaikan: glow 3 lapis cyan (`6px rgba(34,211,238,.9)` + `20px rgba(34,211,238,.55)` + `42px rgba(79,70,229,.4)`) + animasi denyut `scan-glow` 2,4 detik (hover/active/disabled matikan animasi; `prefers-reduced-motion` dihormati). Variabel `--glow` lama dihapus (hanya dipakai di 3 aturan itu). Footer: `RugRadar v7.12.1`. Kontras teks tombol tidak berubah (6,29:1 terang / 5,98:1 gelap — glow di luar tombol).
+- `npm run build` (tsc -b + vite, strict) **LOLOS**. Bundle baru `dist/assets/index-C3mzHmRU.js`; `scan-glow` terkonfirmasi di CSS; `RugRadar v7.12.1` ada; **0 `helius-rpc.com`**.
+- Keyed test: BONK / WIF / POPCAT / PYUSD (lihat output di atas — harus 81/88/88/0, toleransi drift volume BONK 79–81).
+- Deploy v7.12.1 via subagent (teks saja), live check + tes HP Yukka masih menunggu — BUKAN final sampai Yukka ngetes sendiri dari HP.

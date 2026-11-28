@@ -1739,7 +1739,7 @@ export default function App() {
         </p>
         <p>{t.footerDisclaimer}</p>
         {/* v7.10 (B9) — build label, so a bug report can be tied to a version. */}
-        <p className="version">RugRadar v7.12</p>
+        <p className="version">RugRadar v7.12.1</p>
       </footer>
 
       {methodOpen && (
