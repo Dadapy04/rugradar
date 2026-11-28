@@ -716,6 +716,7 @@ export default function App() {
           </select>
         </div>
         <p className="eyebrow">{t.eyebrow}</p>
+        <img src="/logo.png" className="brand-logo" alt="RugRadar logo" width={76} height={76} />
         <h1>
           Rug<span className="accent">Radar</span>
         </h1>
@@ -1206,7 +1207,7 @@ export default function App() {
         </p>
         <p>{t.footerDisclaimer}</p>
         {/* v7.10 (B9) — build label, so a bug report can be tied to a version. */}
-        <p className="version">RugRadar v7.11</p>
+        <p className="version">RugRadar v7.11.1</p>
       </footer>
 
       {methodOpen && (

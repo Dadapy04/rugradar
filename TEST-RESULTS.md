@@ -1597,3 +1597,9 @@ Tiga isu dari live check v7.10 (~01:04 WIB).
 - Runtime check `STRINGS`: 7 kunci (id, en, zh, es, pt, ru, vi), verdict + unit + locale benar per bahasa; contoh terjemahan dibaca natural (zh tagline, ru summaryFatalMint, es holdersExplanation dicek manual).
 - Script riset sementara (`scripts/research-pumpswap.ts`, `scripts/check-chokingcat.ts`) sudah dihapus — tidak masuk build.
 - **BELUM DEPLOY / PUSH — build + test lokal saja. Live check browser + tes HP Yukka masih menunggu — BUKAN final sampai Yukka ngetes sendiri dari HP.**
+
+## v7.11.1 — logo shield di website (28 Nov ~12:13 WIB, build lokal Bella)
+- Logo shield v3 (pilihan Yukka, ganti v2 yang "jelek bner") kini jadi favicon + logo header website: `public/logo.png` (1600×1600), `<img class="brand-logo">` di atas H1 (76px desktop / 64px mobile, glow cyan), favicon + og:image pindah dari `favicon.svg` ke `logo.png`. Footer: `RugRadar v7.11.1`.
+- `npm run build` (tsc -b + vite, strict) **LOLOS**. Bundle baru `dist/assets/index-DiqBUf3y.js` (501,14 kB) + CSS `index-t3yNhWsO.css`. **0 `helius-rpc.com`**; string `RugRadar v7.11.1` terkonfirmasi di bundle; `dist/logo.png` ada.
+- `npx tsx scripts/test-scan.ts` (keyed, 28 Nov ~12:14 WIB): **BONK 81 Aman, WIF 88 Aman, POPCAT 88 Aman, PYUSD 0 Berisiko Tinggi** — tidak berubah.
+- Deploy v7.11.1 via subagent (gh-pages + main), live check browser + tes HP Yukka masih menunggu — BUKAN final sampai Yukka ngetes sendiri dari HP.
