@@ -50,10 +50,28 @@ Tidak ada file di `src/`, `index.html`, `public/`, atau `worker/` yang berubah. 
 - **Skor:** BONK `belum diuji` / WIF `belum diuji` / POPCAT `belum diuji` / PYUSD `belum diuji`. Target dari pemilik: **81 / 88 / 88 / 0**.
 - **Sesuai instruksi pemilik:** Bella yang akan menjalankan `npm run build` dan tes skor dari sisinya, lalu mengisi kolom skor di atas.
 
+### Hasil deploy & verifikasi live
+
+- `main` dipindah maju ke `b167808` (fast-forward dari branch `freemilk/*`, tanpa force).
+- `deploy.yml` jalan otomatis: **passed** (25 dtk) → `gh-pages` = `416aea7` ("Deploy b167808 dari main"). `ci.yml` juga **passed** (27 dtk).
+- Diverifikasi di live `https://dadapy04.github.io/rugradar/` (browser terpisah, tanpa menekan tombol Scan):
+  - Footer: **`RugRadar v7.14`** — yang live memang v7.14, bukan v7.13.
+  - Scan BONK lewat deep-link `?mint=` → **81/100, Safe, Risk Level: Low**, gauge terender, kartu MARKET/TOKEN lengkap.
+  - `RPC: rugradar-proxy.dadapy04.workers.dev/rpc` di baris meta → skor berasal dari pemindaian nyata lewat proxy, bukan angka statis.
+  - Toggle **Simple / Detailed** terlihat di kartu CHECK DETAILS → fitur mode tampilan ikut live.
+  - Tidak ada uncaught script error, tidak ada 404 aset, logo/font/CSS/JS termuat.
+- **Belum teruji di live:** kolom pencarian ticker (`WIF` tanpa alamat) dan tombol simulasi jual ($50/$250/$1.000) — keduanya butuh mengetik dan menekan tombol, sengaja tidak dilakukan saat verifikasi. Kodenya lolos build dan tipe, tetapi alur UI-nya belum dilihat langsung.
+
+### Risiko yang diterima
+
+- `deploy.yml` memakai force push ke `gh-pages` (riwayat diganti tiap deploy). Jalan pulang: `git push -f origin 5a8a9fa:gh-pages` (v7.13).
+- CI memanggil RPC/DexScreener/Jupiter hidup; langkah scan dibuat `continue-on-error` supaya gangguan jaringan tidak memerahkan build, sedangkan `npm run build` tetap menggigit.
+- Tidak ada secret baru: kedua workflow hanya memakai `secrets.GITHUB_TOKEN` bawaan GitHub.
+
 ### Status
 
-- Belum di-commit, belum di-push.
-- Tidak ada bug yang ditugaskan, jadi tidak ada perbaikan kode yang bisa dikerjakan. Menunggu bug berikutnya dari pemilik.
+- **Sudah live:** v7.14 di `main` (`b167808`) dan `gh-pages` (`416aea7`).
+- **Rollback:** `git push -f origin 5a8a9fa:gh-pages` (v7.13).
 
 ---
 
