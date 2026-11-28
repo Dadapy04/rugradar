@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { scanToken, checkFreshWallets, checkInterWalletTransfers, checkLpUnlocks, fetchRugCheckCreator, fmtPct, extractMintCandidate, BASE58_RE, type CheckResult, type InterWalletResult, type ScanResult, type Verdict } from './lib/scanner';
+import { scanToken, checkFreshWallets, checkInterWalletTransfers, checkLpUnlocks, fetchRugCheckCreator, fmtPct, extractMintCandidate, BASE58_RE, type CheckAbortOpts, type CheckResult, type InterWalletResult, type ScanResult, type Verdict } from './lib/scanner';
 import { buildRiskSummary } from './lib/summary';
 import { LANGS, LANG_NAMES, LANG_STORAGE_KEY, LOCALES, STRINGS, detectLang, type Dict, type Lang } from './lib/i18n';
 import './App.css';
@@ -49,8 +49,14 @@ function historyDiffText(
     parts.push(t.historyVerdictChanged(verdictLabel(d.prevVerdict, t), verdictLabel(v, t)));
   // v7.12.7 — say outright whether the move was good or bad: "▲ 2 poin"
   // alone leaves a beginner guessing whether up is good for a safety score.
+  // v7.13 (L9) — the same qualifier for a top-10-only move: a falling
+  // top-10 share is good (less concentration), a rising one is bad, even
+  // when the score itself did not move. Reuses the score better/worse
+  // words — no top-10-specific key exists in the i18n dict.
   if (d.scoreDelta > 0) parts.push(t.historyBetter);
   else if (d.scoreDelta < 0) parts.push(t.historyWorse);
+  else if (d.top10Delta != null && d.top10Delta < 0) parts.push(t.historyTop10Better);
+  else if (d.top10Delta != null && d.top10Delta > 0) parts.push(t.historyTop10Worse);
   return parts.length === 0 ? t.historyNoChange : parts.join(' · ');
 }
 
@@ -70,8 +76,6 @@ function renderShareCard(res: ScanResult, t: Dict): Promise<Blob> {
       reject(new Error('no 2d context'));
       return;
     }
-    const name = `${res.name} (${upperSymbol(res.symbol)})`;
-    const shortName = name.length > 30 ? `${name.slice(0, 27)}…` : name;
     const color =
       res.score >= 80 ? '#22c55e' : res.score >= 50 ? '#f59e0b' : '#ef4444';
     ctx.fillStyle = '#0a0f1e';
@@ -88,11 +92,37 @@ function renderShareCard(res: ScanResult, t: Dict): Promise<Blob> {
     ctx.fillStyle = '#ffffff';
     ctx.font = '800 64px system-ui, sans-serif';
     ctx.fillText('RugRadar', W / 2, 110);
+    // v7.13 (L11) — subtitle is the localized app tagline, not hardcoded
+    // English. The tagline is long, so shrink the font until it fits.
     ctx.fillStyle = '#38bdf8';
-    ctx.font = '600 28px system-ui, sans-serif';
-    ctx.fillText('Solana Token Safety Scanner', W / 2, 158);
+    let subtitleSize = 28;
+    ctx.font = `600 ${subtitleSize}px system-ui, sans-serif`;
+    while (subtitleSize > 20 && ctx.measureText(t.tagline).width > W - 80) {
+      subtitleSize -= 2;
+      ctx.font = `600 ${subtitleSize}px system-ui, sans-serif`;
+    }
+    ctx.fillText(t.tagline, W / 2, 158);
+    // v7.13 (M7) — truncate by rendered width, not char count: wide
+    // CJK/emoji glyphs at 44px clip past the canvas at 30 chars, and
+    // slice() can split a surrogate pair. Array.from keeps code points
+    // whole; binary search finds the longest fitting prefix + ellipsis.
     ctx.fillStyle = '#ffffff';
     ctx.font = '700 44px system-ui, sans-serif';
+    const name = `${res.name} (${upperSymbol(res.symbol)})`;
+    const maxNameWidth = W - 80;
+    let shortName = name;
+    if (ctx.measureText(name).width > maxNameWidth) {
+      const chars = Array.from(name);
+      let lo = 0;
+      let hi = chars.length;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (ctx.measureText(`${chars.slice(0, mid).join('')}…`).width <= maxNameWidth)
+          lo = mid;
+        else hi = mid - 1;
+      }
+      shortName = `${chars.slice(0, lo).join('')}…`;
+    }
     ctx.fillText(shortName, W / 2, 252);
     // Score ring.
     const cx = W / 2;
@@ -181,12 +211,23 @@ const BILLION_SUFFIX: Record<Lang, string> = {
   vi: 'B',
 };
 
+/** v7.13 (M18) — significant digits for ultra-tiny prices, in plain
+ *  decimal notation (never scientific): 1e-12 → 0.000000000001. */
+function fmtTinyUsd(n: number): string {
+  const exp = Math.floor(Math.log10(n));
+  const decimals = Math.max(0, -exp + 2); // 3 significant digits
+  return n.toFixed(decimals).replace(/0+$/, '').replace(/\.$/, '');
+}
+
 function fmtUsd(n: number | null | undefined, lang: Lang): string {
   if (n == null || Number.isNaN(n)) return '—';
   const t = STRINGS[lang];
   if (n > 0 && n < 0.01) {
     // Tiny memecoin prices must never render in scientific notation
     // ("$3.08e-9"): up to 10 decimal places, trailing zeros trimmed.
+    // Below 1e-10 toFixed(10) rounds to zero — use significant digits
+    // instead, so a nonzero price never renders as "$0".
+    if (n < 1e-10) return `$${fmtTinyUsd(n)}`;
     return `$${n.toFixed(10).replace(/0+$/, '').replace(/\.$/, '')}`;
   }
   if (n > 0 && n < 1) return `$${Number(n.toPrecision(3))}`;
@@ -197,7 +238,10 @@ function fmtUsd(n: number | null | undefined, lang: Lang): string {
   return `$${n.toFixed(4)}`;
 }
 
-export function fmtNum(n: number, lang: Lang): string {
+export function fmtNum(n: number | null | undefined, lang: Lang): string {
+  // v7.13 (L16) — defensive: null/undefined/NaN render as "—", never
+  // throw or print "NaN".
+  if (n == null || Number.isNaN(n)) return '—';
   // v7.12.4 — compact for big counts: a full 88-trillion supply
   // ("87,994,285,43…") clipped out of its ~175px stat cell on mobile
   // and read like 87 billion. 88.0T / 999.9M / 12.3K, exact below 10K.
@@ -223,6 +267,73 @@ function shortAddr(a: string): string {
 function upperSymbol(s: string): string {
   return s.startsWith('$') ? `$${s.slice(1).toUpperCase()}` : s.toUpperCase();
 }
+
+/** v7.13 (M6) — errors are stored as CODES, never as frozen translated
+ *  strings, so a language switch re-renders them in the new language.
+ *  Dynamic values (e.g. a raw upstream message) travel as params. */
+type ErrorCode =
+  | 'empty'
+  | 'evm'
+  | 'invalid'
+  | 'notMint'
+  | 'mintNotFound'
+  | 'pairGuidance'
+  | 'generic'
+  | 'pasteFailed'
+  | 'raw';
+
+interface ScanError {
+  code: ErrorCode;
+  /** Raw message, only for code 'raw' (untranslatable upstream text). */
+  raw?: string;
+}
+
+function errorText(err: ScanError, t: Dict): string {
+  switch (err.code) {
+    case 'empty':
+      return t.emptyMintError;
+    case 'evm':
+      return t.evmError;
+    case 'invalid':
+      return t.invalidError;
+    case 'notMint':
+      return t.notMintError;
+    case 'mintNotFound':
+      return t.mintNotFoundError;
+    case 'pairGuidance':
+      return t.pairGuidanceError;
+    case 'pasteFailed':
+      return t.pasteFailed;
+    case 'generic':
+      return t.genericError;
+    case 'raw':
+      return err.raw ?? t.genericError;
+  }
+}
+
+/** Map a thrown error to a code by matching the scanner's translated
+ *  messages across every locale (scanToken throws localized strings);
+ *  anything unrecognised stays a 'raw' message shown as-is. */
+function errorCodeFrom(e: unknown): ScanError {
+  const msg = e instanceof Error ? e.message : '';
+  if (!msg) return { code: 'generic' };
+  for (const l of LANGS) {
+    const d = STRINGS[l];
+    if (msg === d.invalidError) return { code: 'invalid' };
+    if (msg === d.notMintError) return { code: 'notMint' };
+    if (msg === d.mintNotFoundError) return { code: 'mintNotFound' };
+    if (msg === d.pairGuidanceError) return { code: 'pairGuidance' };
+    if (msg === d.genericError) return { code: 'generic' };
+    if (msg === d.emptyMintError) return { code: 'empty' };
+    if (msg === d.evmError) return { code: 'evm' };
+  }
+  return { code: 'raw', raw: msg };
+}
+
+/** v7.13 (H2) — cancellation/deadline opts passed to the secondary
+ *  checks (fresh wallets, inter-wallet transfers, LP unlocks).
+ *  The opts type is scanner.ts's CheckAbortOpts; all three checks
+ *  accept it as an optional trailing param. */
 
 /** Token logo from the Metaplex metadata image (or the DexScreener image
  *  fallback); always falls back to a plain letter avatar — the first letter
@@ -443,12 +554,14 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(() => detectTheme());
   const [mint, setMint] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // v7.13 (M6) — error stored as a code, translated at render time.
+  const [error, setError] = useState<ScanError | null>(null);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [copied, setCopied] = useState<'result' | 'link' | 'address' | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
-  const [pairNote, setPairNote] = useState<string | null>(null);
+  // v7.13 (M6) — pair-note params, translated at render time.
+  const [pairNote, setPairNote] = useState<{ name: string; symbol: string } | null>(null);
   const [recent, setRecent] = useState<RecentScan[]>(() => loadRecent());
   // v7.12 — diff vs the previous scan of this mint (null = first scan).
   const [historyDiff, setHistoryDiff] = useState<{
@@ -459,6 +572,8 @@ export default function App() {
   } | null>(null);
   // v7.12 — share-card feedback (idle | done | failed).
   const [shareCardState, setShareCardState] = useState<'idle' | 'done' | 'failed'>('idle');
+  // v7.13 (L7) — share-card render/share in progress (button guard).
+  const [shareCardBusy, setShareCardBusy] = useState(false);
   // v7.12 — fresh-wallet share (secondary step; null = not applicable).
   const [freshWallets, setFreshWallets] = useState<
     null | 'checking' | { fresh: number; checked: number; unknown: number; total: number }
@@ -477,7 +592,12 @@ export default function App() {
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(
     null,
   );
-  const [batchError, setBatchError] = useState<string | null>(null);
+  // v7.13 (M6) — batch error stored as a code (+ count param), translated
+  // at render time.
+  type BatchError =
+    | { code: 'batchEmpty' | 'batchMax' }
+    | { code: 'batchInvalid'; count: number };
+  const [batchError, setBatchError] = useState<BatchError | null>(null);
   const [batchRows, setBatchRows] = useState<
     {
       mint: string;
@@ -486,13 +606,19 @@ export default function App() {
       symbol?: string;
       score?: number;
       verdict?: Verdict;
-      error?: string;
+      error?: ScanError;
     }[]
   >([]);
   const [methodOpen, setMethodOpen] = useState(false);
   const [nowTick, setNowTick] = useState(Date.now());
   const resultRef = useRef<HTMLElement | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
+  // v7.13 (M4/H2) — synchronous in-flight guard + incrementing scan id:
+  // setLoading(true) lands only after re-render, so two runScan calls in
+  // one tick would both pass a `loading` check. The id also lets stale
+  // secondaries abort (see the secondary-checks effect).
+  const scanIdRef = useRef(0);
+  const scanInFlightRef = useRef(false);
 
   const t = STRINGS[lang];
 
@@ -506,6 +632,13 @@ export default function App() {
     }
   }, [theme]);
 
+  // v7.13 (L3) — set <html lang> at mount too, not only inside switchLang:
+  // the shell script in index.html covers first paint, but React owns the
+  // attribute from here on (e.g. after a language change + remount).
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+
   // Tick every 30s so the "updated X min ago" line stays fresh.
   useEffect(() => {
     if (!result) return;
@@ -513,90 +646,69 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [result]);
 
-  // v7.12 — fresh-wallet share (secondary step): runs only AFTER a
-  // result renders, never blocks the 3-second scan. Cancelled when a
-  // new scan starts so a stale result never overwrites the new one.
+  // v7.13 (H2) — the three secondary steps run SEQUENTIALLY in one
+  // effect, only AFTER a result renders, never blocking the 3-second
+  // scan: fresh wallets first, then inter-wallet transfers (creator
+  // fetch first — the amber rule needs it), then LP unlocks. They used
+  // to fire in parallel and could trip the proxy's 120 req/min limit on
+  // their own. Each step checks cancellation before writing state, so a
+  // stale result never overwrites the new one; a new scan / language
+  // switch / batch start bumps scanIdRef and aborts the chain.
   useEffect(() => {
-    if (!result || !result.top10Holders || result.top10Holders.length === 0) {
+    if (!result) {
       setFreshWallets(null);
-      return;
-    }
-    let cancelled = false;
-    setFreshWallets('checking');
-    void checkFreshWallets(result.top10Holders.map((h) => h.address))
-      .then((r) => {
-        if (!cancelled) setFreshWallets(r);
-      })
-      .catch(() => {
-        if (!cancelled) setFreshWallets(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [result]);
-
-  // v7.12.5 — post-launch inter-wallet transfers (secondary step):
-  // runs only AFTER a result renders, over the top-5 holder accounts.
-  // `sinceMs` is the pair creation time (from pair age), so pre-launch
-  // funding is not mistaken for post-launch splits; null when the pair
-  // age is unknown. v7.12.6 — the creator wallet comes from RugCheck
-  // (fetched on demand: the main scan only fetches RugCheck for young
-  // tokens). The amber rule needs it, so it is read first — a fast
-  // single fetch — then the transfer check runs with it. Cancelled when
-  // a new scan starts.
-  useEffect(() => {
-    if (!result || !result.top10Holders || result.top10Holders.length === 0) {
       setInterWallet(null);
-      return;
-    }
-    let cancelled = false;
-    setInterWallet('checking');
-    const sinceMs =
-      result.pairAgeDays != null
-        ? Date.now() - result.pairAgeDays * 86_400_000
-        : null;
-    // Capture before the await below — TS narrowing of top10Holders
-    // does not survive across an await boundary.
-    const holderAccounts = result.top10Holders.slice(0, 5).map((h) => h.address);
-    void (async () => {
-      const creator = await fetchRugCheckCreator(result.mint).catch(() => null);
-      if (cancelled) return;
-      const r = await checkInterWalletTransfers(
-        result.mint,
-        holderAccounts,
-        sinceMs,
-        creator,
-      ).catch(() => null);
-      if (cancelled) return;
-      setInterWallet(r == null || r.checked === 0 ? 'unavailable' : r);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [result]);
-
-  // v7.12 — LP unlock countdown (secondary step): runs only AFTER a
-  // result renders, and only when the LP is not effectively burned
-  // (the LP check's own ≥95% "burned" line — a burned LP has nothing
-  // left to unlock) and the token is not on a bonding curve (no LP
-  // yet). NOTE: burnedPct can be null (e.g. BONK's top pair is an Orca
-  // pool with no LP mint) while RugCheck still reports real lockers on
-  // other pools — null must NOT skip the check. Cancelled when a new
-  // scan starts.
-  useEffect(() => {
-    if (!result || result.isBondingCurve || (result.lpBurnedPct ?? 0) >= 95) {
       setLpUnlock(null);
       return;
     }
+    const myScanId = scanIdRef.current;
+    const opts: CheckAbortOpts = {
+      isCancelled: () => scanIdRef.current !== myScanId,
+      deadlineMs: Date.now() + 90_000,
+    };
     let cancelled = false;
-    setLpUnlock('checking');
-    void checkLpUnlocks(result.mint)
-      .then((r) => {
-        if (!cancelled) setLpUnlock(r);
-      })
-      .catch(() => {
-        if (!cancelled) setLpUnlock(null);
-      });
+    const isStale = () => cancelled || opts.isCancelled?.() === true;
+    const hasHolders = !!result.top10Holders && result.top10Holders.length > 0;
+    const holderAccounts = result.top10Holders?.map((h) => h.address) ?? [];
+    const top5 = result.top10Holders?.slice(0, 5).map((h) => h.address) ?? [];
+    const sinceMs =
+      result.pairAgeDays != null ? Date.now() - result.pairAgeDays * 86_400_000 : null;
+    const mint = result.mint;
+    // LP unlocks run only when the LP is not effectively burned (the LP
+    // check's own ≥95% "burned" line — a burned LP has nothing left to
+    // unlock) and the token is not on a bonding curve (no LP yet). NOTE:
+    // burnedPct can be null (e.g. BONK's top pair is an Orca pool with
+    // no LP mint) while RugCheck still reports real lockers on other
+    // pools — null must NOT skip the check. Unlike fresh/transfers, the
+    // LP check does not need top-10 holders.
+    const skipLp = result.isBondingCurve || (result.lpBurnedPct ?? 0) >= 95;
+    void (async () => {
+      if (!hasHolders) {
+        setFreshWallets(null);
+        setInterWallet(null);
+      } else {
+        setFreshWallets('checking');
+        const fresh = await checkFreshWallets(holderAccounts, opts).catch(() => null);
+        if (isStale()) return;
+        setFreshWallets(fresh);
+        setInterWallet('checking');
+        // Capture before the await below — TS narrowing of top10Holders
+        // does not survive across an await boundary.
+        const creator = await fetchRugCheckCreator(mint).catch(() => null);
+        if (isStale()) return;
+        const r = await checkInterWalletTransfers(mint, top5, sinceMs, creator, opts).catch(() => null);
+        if (isStale()) return;
+        setInterWallet(r == null || r.checked === 0 ? 'unavailable' : r);
+      }
+      if (skipLp) {
+        setLpUnlock(null);
+        return;
+      }
+      setLpUnlock('checking');
+      const lp = await checkLpUnlocks(mint, opts).catch(() => null);
+      if (isStale()) return;
+      setLpUnlock(lp);
+    })();
     return () => {
       cancelled = true;
     };
@@ -642,7 +754,9 @@ export default function App() {
   // the reasons are visible on mobile without hunting for them.
   useEffect(() => {
     if (result && !loading) {
-      resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // v7.13 (L13) — instant scroll when reduced motion is preferred.
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      resultRef.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
     }
   }, [result, loading]);
 
@@ -665,41 +779,50 @@ export default function App() {
   async function runScan(address: string, useLang: Lang = lang, recordHistory = true) {
     // A scan is already running (e.g. Enter pressed while the buttons
     // are disabled) — ignore the duplicate so two scans cannot race.
-    if (loading) return;
-    const tt = STRINGS[useLang];
+    // v7.13 (H1/M4): guard on batchRunning too, and on a synchronous
+    // in-flight ref — setLoading(true) lands only after re-render, so
+    // two runScan calls in one tick would both pass a `loading` check.
+    if (loading || batchRunning || scanInFlightRef.current) return;
     const raw = address.trim();
     if (!raw) {
-      setError(tt.emptyMintError);
+      setError({ code: 'empty' });
       return;
     }
     // An EVM address must never be fed to the URL extractor — a long hex
     // string can contain a 32+ char base58-looking run by accident.
-    if (raw.startsWith('0x')) {
-      setError(tt.evmError);
+    // v7.13 (L1): case-insensitive — 0X… is EVM too.
+    if (raw.toLowerCase().startsWith('0x')) {
+      setError({ code: 'evm' });
       return;
     }
     // Smart input: a pasted DexScreener / Pump.fun / Birdeye / Solscan
     // link (or any text containing an address) yields the mint inside it.
     const candidate = extractMintCandidate(raw);
     if (!candidate) {
-      setError(tt.invalidError);
+      setError({ code: 'invalid' });
       return;
     }
     if (candidate !== raw) setMint(candidate); // show the extracted address
     const addr = candidate;
     if (!BASE58_RE.test(addr)) {
-      setError(tt.invalidError);
+      setError({ code: 'invalid' });
       return;
     }
+    // v7.13 (M4): claim the in-flight slot synchronously and take a scan
+    // id; only this id may write the result/error afterwards.
+    scanInFlightRef.current = true;
+    const myScanId = ++scanIdRef.current;
     setLoading(true);
     setError(null);
-    setResult(null);
+    // v7.13 (M3): the previous result stays on screen while the new scan
+    // runs — on error only the error state is set, the good score is
+    // never wiped. (pairNote/historyDiff are re-set on success below.)
     setCopyFailed(false);
     setShareCardState('idle');
-    setPairNote(null);
-    setHistoryDiff(null);
     try {
       const res = await scanToken(addr, useLang);
+      // Stale completion (a newer scan started) — never overwrite it.
+      if (scanIdRef.current !== myScanId) return;
       setResult(res);
       // v7.12 — score history + diff: compare against the previous scan
       // of this mint (if any) BEFORE recording the new one, so the diff
@@ -733,39 +856,53 @@ export default function App() {
       // The scan may have resolved a pair address to its base token —
       // show the resolved mint in the input and the shareable link.
       setMint(res.mint);
-      if (res.resolvedFromPair) {
-        setPairNote(tt.pairConvertedNote(res.name, upperSymbol(res.symbol)));
-      }
-      // Recent scans: newest first, deduped by mint, max 8, persisted.
-      const entry: RecentScan = {
-        mint: res.mint,
-        name: res.name,
-        symbol: res.symbol,
-        score: res.score,
-        logoUrl: res.logoUrl,
-      };
-      setRecent((prev) => {
-        const next = [entry, ...prev.filter((r) => r.mint !== res.mint)].slice(0, RECENT_MAX);
+      // v7.13 (M6): store the pair-note params, translate at render time.
+      setPairNote(
+        res.resolvedFromPair
+          ? { name: res.name, symbol: upperSymbol(res.symbol) }
+          : null,
+      );
+      // v7.13 (L6): a language-switch re-scan (recordHistory=false) must
+      // not pollute Recents or rewrite ?mint= either.
+      if (recordHistory) {
+        // Recent scans: newest first, deduped by mint, max 8, persisted.
+        const entry: RecentScan = {
+          mint: res.mint,
+          name: res.name,
+          symbol: res.symbol,
+          score: res.score,
+          logoUrl: res.logoUrl,
+        };
+        setRecent((prev) => {
+          const next = [entry, ...prev.filter((r) => r.mint !== res.mint)].slice(0, RECENT_MAX);
+          try {
+            window.localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+          } catch {
+            // storage unavailable — non-fatal
+          }
+          return next;
+        });
         try {
-          window.localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+          window.history.replaceState(
+            null,
+            '',
+            `${window.location.pathname}?mint=${encodeURIComponent(res.mint)}`,
+          );
         } catch {
-          // storage unavailable — non-fatal
+          // history API unavailable (e.g. file://) — non-fatal
         }
-        return next;
-      });
-      try {
-        window.history.replaceState(
-          null,
-          '',
-          `${window.location.pathname}?mint=${encodeURIComponent(res.mint)}`,
-        );
-      } catch {
-        // history API unavailable (e.g. file://) — non-fatal
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : tt.genericError);
+      // v7.13 (M3/M4/M6): only the error state changes — the previous
+      // result stays on screen — the error is stored as a code, and a
+      // stale completion never writes anything.
+      if (scanIdRef.current !== myScanId) return;
+      setError(errorCodeFrom(e));
     } finally {
-      setLoading(false);
+      // Only the latest scan clears the loading state; the in-flight
+      // slot is always released (a stale scan must never brick scanning).
+      if (scanIdRef.current === myScanId) setLoading(false);
+      scanInFlightRef.current = false;
     }
   }
 
@@ -776,17 +913,25 @@ export default function App() {
   // score history (F1) so a later single scan diffs against it.
   async function runBatch() {
     if (batchRunning || loading) return;
-    const tt = STRINGS[lang];
-    const lines = batchText
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    // v7.13 (M5): dedupe lines keeping the first occurrence (exact
+    // strings after trim — mints are case-sensitive base58).
+    // v7.13 (H2): a batch start bumps the scan id so stale secondaries
+    // from the previous single scan abort.
+    scanIdRef.current += 1;
+    const lines = [
+      ...new Set(
+        batchText
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    ];
     if (lines.length === 0) {
-      setBatchError(tt.batchEmptyError);
+      setBatchError({ code: 'batchEmpty' });
       return;
     }
     if (lines.length > 10) {
-      setBatchError(tt.batchMaxError);
+      setBatchError({ code: 'batchMax' });
       return;
     }
     setBatchError(null);
@@ -804,7 +949,7 @@ export default function App() {
         invalid++;
         setBatchRows((prev) =>
           prev.map((r, j) =>
-            j === i ? { ...r, status: 'error' as const, error: tt.invalidError } : r,
+            j === i ? { ...r, status: 'error' as const, error: { code: 'invalid' as const } } : r,
           ),
         );
       } else {
@@ -838,7 +983,7 @@ export default function App() {
                 ? {
                     ...r,
                     status: 'error' as const,
-                    error: e instanceof Error ? e.message : tt.genericError,
+                    error: errorCodeFrom(e),
                   }
                 : r,
             ),
@@ -848,7 +993,7 @@ export default function App() {
       setBatchProgress({ done: i + 1, total: lines.length });
     }
     setBatchRunning(false);
-    if (invalid > 0) setBatchError(tt.batchInvalidLines(invalid));
+    if (invalid > 0) setBatchError({ code: 'batchInvalid', count: invalid });
   }
 
   // Auto-run a scan when the page is opened with ?mint=<address> (shareable link).
@@ -909,7 +1054,7 @@ export default function App() {
     } catch {
       // Clipboard read needs a user gesture + permission; on mobile
       // browsers it can be denied — show the friendly message instead.
-      setError(t.pasteFailed);
+      setError({ code: 'pasteFailed' });
     }
   }
 
@@ -954,12 +1099,20 @@ export default function App() {
   // native share sheet (mobile) when it accepts files, otherwise
   // download the file. A cancelled share sheet is not an error.
   async function shareCardImage() {
-    if (!result) return;
+    // v7.13 (L7): in-progress guard — a double-click rendered two
+    // canvases / two share sheets.
+    if (!result || shareCardBusy) return;
+    setShareCardBusy(true);
     try {
       const blob = await renderShareCard(result, t);
+      // v7.13 (L8): an empty sanitized symbol (e.g. "!!!") made
+      // "rugradar--81.png" — fall back to the mint, then 'token'.
+      const safeSymbol = result.symbol.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const fallback =
+        result.mint.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10) || 'token';
       const file = new File(
         [blob],
-        `rugradar-${result.symbol.toLowerCase().replace(/[^a-z0-9]/g, '')}-${result.score}.png`,
+        `rugradar-${safeSymbol || fallback}-${result.score}.png`,
         { type: 'image/png' },
       );
       if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
@@ -982,6 +1135,8 @@ export default function App() {
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return; // user cancelled
       setShareCardState('failed');
+    } finally {
+      setShareCardBusy(false);
     }
   }
 
@@ -1157,7 +1312,7 @@ export default function App() {
             className="lang-select"
             value={lang}
             onChange={(e) => void switchLang(e.target.value as Lang)}
-            disabled={loading}
+            disabled={loading || batchRunning}
             aria-label="Language / Bahasa"
           >
             {LANGS.map((l) => (
@@ -1176,9 +1331,6 @@ export default function App() {
       </header>
 
       <main className="card">
-        {/* v7.10 (UI 9) — the scan bar is sticky on mobile (≤560px), so
-          the input + Scan button stay reachable after scrolling down to
-          the results. */}
         <div className="scan-bar">
           <label className="field-label" htmlFor="mint">
             {t.fieldLabel}
@@ -1192,6 +1344,9 @@ export default function App() {
               onChange={(e) => {
                 const v = e.target.value;
                 setMint(v);
+                // v7.13 (L4): clear the error on ANY input change, not
+                // only when the input becomes empty.
+                setError(null);
                 if (!v.trim()) clearInput();
               }}
               onKeyDown={(e) => {
@@ -1213,7 +1368,7 @@ export default function App() {
                 aria-label={t.pasteInput}
                 title={t.pasteInput}
                 onClick={() => void pasteFromClipboard()}
-                disabled={loading}
+                disabled={loading || batchRunning}
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -1237,7 +1392,7 @@ export default function App() {
                   aria-label={t.clearInput}
                   title={t.clearInput}
                   onClick={clearInput}
-                  disabled={loading}
+                  disabled={loading || batchRunning}
                 >
                   ×
                 </button>
@@ -1248,7 +1403,7 @@ export default function App() {
           <button
             className="btn-primary"
             onClick={() => void runScan(mint)}
-            disabled={loading}
+            disabled={loading || batchRunning}
           >
             {loading ? t.scanningButton : t.scanButton}
           </button>
@@ -1266,7 +1421,7 @@ export default function App() {
                 setMint(ex.mint);
                 void runScan(ex.mint);
               }}
-              disabled={loading}
+              disabled={loading || batchRunning}
             >
               {ex.label}
             </button>
@@ -1285,7 +1440,7 @@ export default function App() {
                   setMint(r.mint);
                   void runScan(r.mint);
                 }}
-                disabled={loading}
+                disabled={loading || batchRunning}
                 title={r.name}
               >
                 <TokenLogo url={r.logoUrl} symbol={r.symbol} small />
@@ -1295,7 +1450,21 @@ export default function App() {
           </div>
         )}
 
-        {error && <div className="error">{error}</div>}
+        {error && (
+          <div className="error">
+            {errorText(error, t)}{' '}
+            {/* v7.13 (L5) — retry affordance, same pattern as the
+              holders-unavailable card's rescan button. */}
+            <button
+              type="button"
+              className="btn-secondary check-retry"
+              onClick={() => void runScan(mint)}
+              disabled={loading || batchRunning}
+            >
+              {t.rescan}
+            </button>
+          </div>
+        )}
 
         {loading && (
           <div className="loading">
@@ -1400,7 +1569,11 @@ export default function App() {
               </div>
           </div>
 
-          {pairNote && <p className="pair-note">{pairNote}</p>}
+          {pairNote && (
+            <p className="pair-note">
+              {t.pairConvertedNote(pairNote.name, pairNote.symbol)}
+            </p>
+          )}
 
           {/* v7.10 (UI 1) — verdict-first hero banner: the verdict IS the
             page now, not a card inside it. Ring left, verdict + risk
@@ -1616,7 +1789,7 @@ export default function App() {
                       type="button"
                       className="btn-secondary check-retry"
                       onClick={() => void runScan(result.mint)}
-                      disabled={loading}
+                      disabled={loading || batchRunning}
                     >
                       {t.rescan}
                     </button>
@@ -1773,6 +1946,7 @@ export default function App() {
                 type="button"
                 className="btn-secondary"
                 onClick={() => void shareCardImage()}
+                disabled={shareCardBusy}
               >
                 {shareCardState === 'done' ? t.shareCardSaved : t.shareCardButton}
               </button>
@@ -1780,7 +1954,7 @@ export default function App() {
                 type="button"
                 className="btn-secondary share-rescan"
                 onClick={() => void runScan(result.mint)}
-                disabled={loading}
+                disabled={loading || batchRunning}
               >
                 {t.rescan}
               </button>
@@ -1850,9 +2024,20 @@ export default function App() {
           </button>
           </span>
         </div>
-        {batchError && <p className="error">{batchError}</p>}
+        {batchError && (
+          <p className="error">
+            {batchError.code === 'batchInvalid'
+              ? t.batchInvalidLines(batchError.count)
+              : batchError.code === 'batchEmpty'
+                ? t.batchEmptyError
+                : t.batchMaxError}
+          </p>
+        )}
         {batchRows.length > 0 && (
           <div className="batch-results">
+            {/* v7.13 (L15) — horizontal-overflow wrapper: a long unbroken
+              token name must not push the table past the card at 390px. */}
+            <div className="batch-table-wrap" style={{ overflowX: 'auto' }}>
             <table className="batch-table">
               <thead>
                 <tr>
@@ -1898,7 +2083,9 @@ export default function App() {
                           {verdictLabel(row.verdict, t)}
                         </strong>
                       ) : row.status === 'error' ? (
-                        <span className="batch-err">{row.error}</span>
+                        <span className="batch-err">
+                          {row.error ? errorText(row.error, t) : ''}
+                        </span>
                       ) : row.status === 'scanning' ? (
                         t.scanningButton
                       ) : (
@@ -1909,6 +2096,7 @@ export default function App() {
                 ))}
               </tbody>
             </table>
+            </div>
             <p className="batch-hint">{t.batchClickHint}</p>
           </div>
         )}
@@ -1920,7 +2108,7 @@ export default function App() {
         </p>
         <p>{t.footerDisclaimer}</p>
         {/* v7.10 (B9) — build label, so a bug report can be tied to a version. */}
-        <p className="version">RugRadar v7.12.7</p>
+        <p className="version">RugRadar v7.13</p>
       </footer>
 
       {methodOpen && (

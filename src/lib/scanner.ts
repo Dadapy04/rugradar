@@ -260,18 +260,37 @@ export async function resolvePairBaseToken(pairAddress: string): Promise<string 
 }
 
 export const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-const BASE58_FIND_RE = /[1-9A-HJ-NP-Za-km-z]{32,44}/;
+
+/** True when the string decodes to exactly 32 bytes — i.e. it is a real
+ *  Solana address, not just a base58-looking run. M8: a 44-char slice of
+ *  an 88-char tx signature can look like an address, so length alone is
+ *  never enough. */
+function isValidAddress(s: string): boolean {
+  try {
+    // PublicKey throws unless the base58 decodes to exactly 32 bytes.
+    new PublicKey(s);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Extract a token mint address from pasted text: a bare address, or a
  *  link from DexScreener / Pump.fun / Birdeye / Solscan. Host-specific
  *  patterns win over the generic fallback, so a pair address inside a
  *  DexScreener link is extracted as-is and resolved by the pair check
  *  in scanToken. Returns null when nothing that looks like an address
- *  is found. The caller shows the extracted address in the input. */
+ *  is found. The caller shows the extracted address in the input.
+ *  M8 — rejects `0x…` (EVM) input outright, requires every candidate to
+ *  decode to exactly 32 bytes, and only matches a generic candidate at
+ *  a non-base58 boundary, so a long base58 run (e.g. an 88-char tx
+ *  signature) never yields its first 44 chars as a "mint". */
 export function extractMintCandidate(raw: string): string | null {
   const input = raw.trim();
   if (!input) return null;
-  if (BASE58_RE.test(input)) return input;
+  // EVM address (bare or embedded) — never a Solana mint.
+  if (/^0x/i.test(input) || /\b0x[0-9a-fA-F]{40}\b/.test(input)) return null;
+  if (BASE58_RE.test(input)) return isValidAddress(input) ? input : null;
   const hostPatterns = [
     /pump\.fun\/coin\/([1-9A-HJ-NP-Za-km-z]{32,44})/,
     /pump\.fun\/([1-9A-HJ-NP-Za-km-z]{32,44})/,
@@ -281,10 +300,14 @@ export function extractMintCandidate(raw: string): string | null {
   ];
   for (const re of hostPatterns) {
     const m = input.match(re);
-    if (m) return m[1];
+    if (m && isValidAddress(m[1])) return m[1];
   }
-  const m = input.match(BASE58_FIND_RE);
-  return m ? m[0] : null;
+  // Generic fallback: the candidate must be a whole base58 token, not a
+  // slice of a longer base58 run — the boundary guards reject an 88-char
+  // signature (no boundary inside it) and the 32-byte check rejects any
+  // 32–44-char run that is not a real address.
+  const m = input.match(/(?:^|[^1-9A-HJ-NP-Za-km-z])([1-9A-HJ-NP-Za-km-z]{32,44})(?:$|[^1-9A-HJ-NP-Za-km-z])/);
+  return m && isValidAddress(m[1]) ? m[1] : null;
 }
 
 /** Read the on-chain mint account (supply, decimals, authorities) via the
@@ -415,23 +438,38 @@ async function rpcCall<T>(
  *  429s made BONK flake to 78 on re-scans (holder data unavailable → 79
  *  cap). A single retry recovers most of them; when the data really
  *  cannot be read the fail-safe (cap 79 + UNAVAILABLE badge) still
- *  applies honestly. Returns null when every endpoint fails. */
+ *  applies honestly. H2 — a 429 waits 2s before the retry / fallback
+ *  (no immediate re-hit in the same window); other failures keep the
+ *  700ms retry. M11 — a default 30s deadline: on a total RPC outage
+ *  this returns null (UNAVAILABLE) instead of stalling for ~50s across
+ *  five 10s-timeout attempts. Returns null when every endpoint fails. */
 async function getLargestAccounts(
   mint: string,
+  deadlineMs: number = Date.now() + 30_000,
 ): Promise<{ address: string; amount: number }[] | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
+    if (Date.now() > deadlineMs) return null;
     try {
       const result = await rpcCall<{
         value: { address: string; amount: string }[];
       }>(PROXY_RPC, 'getTokenLargestAccounts', [mint, { commitment: 'confirmed' }]);
       return result.value.map((a) => ({ address: a.address, amount: Number(a.amount) }));
-    } catch {
+    } catch (err) {
       // First proxy failure: wait briefly — a transient 429 often clears
       // within a second — then retry the proxy once before falling back.
-      if (attempt === 0) await new Promise((r) => setTimeout(r, 700));
+      // A 429 waits longer (2s): the window is exhausted, so an
+      // immediate retry would only burn another quota hit.
+      if (attempt === 0) {
+        await sleep(isRateLimitError(err) ? 2_000 : 700);
+      } else if (isRateLimitError(err)) {
+        // Proxy exhausted twice — wait before falling back to the
+        // public RPCs in the same window.
+        await sleep(2_000);
+      }
     }
   }
   for (const endpoint of RPC_ENDPOINTS) {
+    if (Date.now() > deadlineMs) return null;
     try {
       const result = await rpcCall<{
         value: { address: string; amount: string }[];
@@ -447,18 +485,48 @@ async function getLargestAccounts(
 /** Generic single-attempt JSON-RPC call across endpoints (proxy first,
  *  then the public RPCs): returns the first success, throws when all fail.
  *  Used by the bundle heuristic, whose many small calls must not stall the
- *  scan on one throttled endpoint. */
+ *  scan on one throttled endpoint.
+ *  H2 — 429 backoff: when an endpoint answers 429 (proxy's 120 req/min
+ *  limit), wait 2s before trying the next endpoint instead of
+ *  immediately re-hitting another endpoint in the same window. */
 async function rpcCallAny<T>(method: string, params: unknown[]): Promise<T> {
   const endpoints = [PROXY_RPC, ...RPC_ENDPOINTS];
   let lastError: unknown = null;
-  for (const endpoint of endpoints) {
+  for (let i = 0; i < endpoints.length; i++) {
     try {
-      return await rpcCall<T>(endpoint, method, params);
+      return await rpcCall<T>(endpoints[i], method, params);
     } catch (err) {
       lastError = err;
+      if (isRateLimitError(err) && i < endpoints.length - 1) {
+        await sleep(2_000);
+      }
     }
   }
   throw lastError instanceof Error ? lastError : new Error('RPC failed');
+}
+
+/** True when an error is an HTTP 429 rate-limit response (proxy or RPC). */
+function isRateLimitError(err: unknown): boolean {
+  return err instanceof Error && err.message.includes('429');
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Cancellation / deadline options for the secondary checks (H2): the
+ *  App passes these from its result effect so a new scan (or a deadline)
+ *  aborts in-flight loops promptly instead of burning RPC budget on a
+ *  stale result. `deadlineMs` is an absolute `Date.now()` timestamp. */
+export interface CheckAbortOpts {
+  isCancelled?: () => boolean;
+  deadlineMs?: number;
+}
+
+function shouldStop(opts?: CheckAbortOpts): boolean {
+  if (opts?.isCancelled?.()) return true;
+  if (opts?.deadlineMs != null && Date.now() > opts.deadlineMs) return true;
+  return false;
 }
 
 /** Top-10 holders share of total supply.
@@ -479,6 +547,10 @@ async function readTopHolders(
   top10: TopHolder[];
   excludedMatched: string[];
 }> {
+  // L19 — a zero-supply mint has no meaningful holder shares: supply 0
+  // would make every share 0% and score a full 30/30. Treat it as
+  // unavailable instead (the caller degrades to neutral 15 + 79 cap).
+  if (supplyRaw <= 0) throw new Error('zero supply — holder shares undefined');
   const entries = await getLargestAccounts(mint.toBase58());
   if (entries == null) throw new Error('getTokenLargestAccounts failed on all endpoints');
   const exclude = new Set(excludeAddresses ?? []);
@@ -549,6 +621,38 @@ async function getTokenAccountMint(address: string): Promise<string | null> {
       const data = res.value?.data;
       if (data && !Array.isArray(data) && data.parsed?.type === 'account') {
         return data.parsed.info.mint ?? null;
+      }
+      return null; // definitive: not a token account
+    } catch {
+      // try the next endpoint
+    }
+  }
+  return null;
+}
+
+/** The OWNER (wallet) of a token account, via parsed getAccountInfo — or
+ *  null when the account is not a token account / cannot be read. M10:
+ *  getTokenLargestAccounts returns TOKEN ACCOUNT addresses, not wallets,
+ *  so the fresh-wallet check must resolve the owner first and page the
+ *  WALLET's history, not the token account's. Same endpoint pattern as
+ *  getTokenAccountMint. */
+async function getTokenAccountOwner(address: string): Promise<string | null> {
+  const endpoints = [PROXY_RPC, ...RPC_ENDPOINTS];
+  for (const endpoint of endpoints) {
+    try {
+      const res = await rpcCall<{
+        value: {
+          data:
+            | { parsed: { info: { owner?: string }; type: string }; program: string; space: number }
+            | [string, string];
+        } | null;
+      }>(endpoint, 'getAccountInfo', [
+        address,
+        { encoding: 'jsonParsed', commitment: 'confirmed' },
+      ]);
+      const data = res.value?.data;
+      if (data && !Array.isArray(data) && data.parsed?.type === 'account') {
+        return data.parsed.info.owner ?? null;
       }
       return null; // definitive: not a token account
     } catch {
@@ -745,6 +849,204 @@ async function readPumpSwapPool(
   return info;
 }
 
+// ---------- Orca Whirlpool state (M12) ----------
+// Layout (Anchor account, verified against the official client codec in
+// @orca-so/whirlpools-client v7.0.0 `getWhirlpoolDecoder`, total size
+// 653 bytes): discriminator 8 | whirlpoolsConfig Pubkey @8 |
+// whirlpoolBump u8 @40 | tickSpacing u16 @41 | feeTierIndexSeed [u8;2]
+// @43 | feeRate u16 @45 | protocolFeeRate u16 @47 | liquidity u128 @49 |
+// sqrtPrice u128 @65 | tickCurrentIndex i32 @81 |
+// protocolFeeOwedA u64 @85 | protocolFeeOwedB u64 @93 |
+// tokenMintA Pubkey @101 | tokenVaultA Pubkey @133 |
+// feeGrowthGlobalA u128 @165 | tokenMintB Pubkey @181 |
+// tokenVaultB Pubkey @213 | feeGrowthGlobalB u128 @245 | ...
+// Program: whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc.
+// Concentrated liquidity has NO fungible LP mint, so lpMint is the zero
+// address (the LP burn check never runs for Orca pairs — it is 'na').
+// The vault of the scanned token is what the holder exclusion needs.
+const ORCA_PROGRAM_ID = 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc';
+const ORCA_POOL_MIN_LEN = 245;
+const ORCA_MINT_A_OFFSET = 101;
+const ORCA_VAULT_A_OFFSET = 133;
+const ORCA_MINT_B_OFFSET = 181;
+const ORCA_VAULT_B_OFFSET = 213;
+const ZERO_ADDRESS = '11111111111111111111111111111111';
+
+/** Read an Orca Whirlpool account and extract its vaults. Returns null
+ *  when the account is not a Whirlpool (wrong owner, wrong length, or
+ *  the embedded mints do not match the DexScreener pair) — callers then
+ *  report "cannot be checked" instead of guessing. */
+async function readOrcaPool(
+  poolAddress: string,
+  baseTokenAddress: string | undefined,
+  quoteTokenAddress: string | undefined,
+): Promise<AmmPoolInfo | null> {
+  const raw = await fetchRawAccount(poolAddress);
+  if (!raw || raw.owner !== ORCA_PROGRAM_ID) return null;
+  if (raw.data.length < ORCA_POOL_MIN_LEN) return null;
+  const readPubkey = (off: number): string =>
+    new PublicKey(raw.data.subarray(off, off + 32)).toBase58();
+  const mintA = readPubkey(ORCA_MINT_A_OFFSET);
+  const mintB = readPubkey(ORCA_MINT_B_OFFSET);
+  const vaultA = readPubkey(ORCA_VAULT_A_OFFSET);
+  const vaultB = readPubkey(ORCA_VAULT_B_OFFSET);
+  if (vaultA === ZERO_ADDRESS || vaultB === ZERO_ADDRESS) return null;
+  // Map A/B onto base/quote so baseVault always holds the base token
+  // (Whirlpool sorts A < B as pubkeys; DexScreener does not). The
+  // pool's own mints must include the pair's known token(s), otherwise
+  // this is not the pair's pool.
+  let baseMint: string;
+  let quoteMint: string;
+  let baseVault: string;
+  let quoteVault: string;
+  if (baseTokenAddress != null) {
+    if (mintA === baseTokenAddress) {
+      baseMint = mintA; baseVault = vaultA; quoteMint = mintB; quoteVault = vaultB;
+    } else if (mintB === baseTokenAddress) {
+      baseMint = mintB; baseVault = vaultB; quoteMint = mintA; quoteVault = vaultA;
+    } else {
+      return null;
+    }
+    if (quoteTokenAddress != null && quoteMint !== quoteTokenAddress) return null;
+  } else if (quoteTokenAddress != null) {
+    if (mintA === quoteTokenAddress) {
+      quoteMint = mintA; quoteVault = vaultA; baseMint = mintB; baseVault = vaultB;
+    } else if (mintB === quoteTokenAddress) {
+      quoteMint = mintB; quoteVault = vaultB; baseMint = mintA; baseVault = vaultA;
+    } else {
+      return null;
+    }
+  } else {
+    baseMint = mintA; baseVault = vaultA; quoteMint = mintB; quoteVault = vaultB;
+  }
+  return { baseVault, quoteVault, baseMint, quoteMint, lpMint: ZERO_ADDRESS };
+}
+
+// ---------- Meteora DLMM LbPair state (M12) ----------
+// Layout (Anchor account, verified against the published IDL in
+// @meteora-ag/dlmm v1.9.14): discriminator 8 | parameters
+// (StaticParameters, 32 bytes) @8 | v_parameters (VariableParameters,
+// 32 bytes) @40 | bump_seed u8 @72 | bin_step_seed [u8;2] @73 |
+// pair_type u8 @75 | active_id i32 @76 | bin_step u16 @80 | status u8
+// @82 | require_base_factor_seed u8 @83 | base_factor_seed [u8;2] @84 |
+// activation_type u8 @86 | creator_pool_on_off_control u8 @87 |
+// token_x_mint Pubkey @88 | token_y_mint Pubkey @120 |
+// reserve_x Pubkey @152 | reserve_y Pubkey @184 | protocol_fee @216 ...
+// The active_id @76 / bin_step @80 anchors are independently confirmed
+// by Meteora's own swap-parsing guide (mainnet-sampled, Oct 2026).
+// Program: LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo (current);
+// M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K is the legacy DLMM
+// program — old pools still live under it, so both owners are accepted.
+// DLMM header fields grew over versions (activation_type /
+// creator_pool_on_off_control were added after launch), so fixed
+// offsets alone would misread pre-2024 pools: the reader first tries
+// the current offsets, then falls back to scanning for the two pair
+// mints as consecutive pubkeys — token_x_mint, token_y_mint,
+// reserve_x, reserve_y are consecutive in every version. Either path
+// still needs the mint-match, and the caller verifies the vault really
+// holds the scanned mint before excluding it.
+// Like Orca, DLMM has NO fungible LP mint (lpMint = zero address).
+const METEORA_DLMM_PROGRAM_IDS = new Set([
+  'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',
+  'M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K',
+]);
+const METEORA_POOL_MIN_LEN = 216;
+const METEORA_MINT_X_OFFSET = 88;
+const METEORA_MINT_Y_OFFSET = 120;
+const METEORA_RESERVE_X_OFFSET = 152;
+const METEORA_RESERVE_Y_OFFSET = 184;
+
+/** Read a Meteora DLMM LbPair account and extract its reserve vaults.
+ *  Returns null when the account is not an LbPair for this pair (wrong
+ *  owner, wrong length, or the embedded mints do not match the
+ *  DexScreener pair) — callers then report "cannot be checked" instead
+ *  of guessing. */
+async function readMeteoraPool(
+  poolAddress: string,
+  baseTokenAddress: string | undefined,
+  quoteTokenAddress: string | undefined,
+): Promise<AmmPoolInfo | null> {
+  const raw = await fetchRawAccount(poolAddress);
+  if (!raw || !METEORA_DLMM_PROGRAM_IDS.has(raw.owner)) return null;
+  if (raw.data.length < METEORA_POOL_MIN_LEN) return null;
+  const readPubkey = (off: number): string =>
+    new PublicKey(raw.data.subarray(off, off + 32)).toBase58();
+  // The pair's two mints, as raw bytes, for the scan fallback.
+  const mintBytes = (addr: string | undefined): Uint8Array | null => {
+    if (addr == null) return null;
+    try {
+      return new PublicKey(addr).toBytes();
+    } catch {
+      return null;
+    }
+  };
+  const baseBytes = mintBytes(baseTokenAddress);
+  const quoteBytes = mintBytes(quoteTokenAddress);
+  const bytesEqual = (off: number, want: Uint8Array | null): boolean => {
+    if (want == null || off + 32 > raw.data.length) return false;
+    for (let i = 0; i < 32; i++) if (raw.data[off + i] !== want[i]) return false;
+    return true;
+  };
+  // Candidate (mintX, mintY, reserveX, reserveY) offset quadruples:
+  // current-IDL fixed offsets first, then a scan for the two pair mints
+  // sitting consecutively (old-layout pools).
+  const candidates: [number, number, number, number][] = [
+    [
+      METEORA_MINT_X_OFFSET,
+      METEORA_MINT_Y_OFFSET,
+      METEORA_RESERVE_X_OFFSET,
+      METEORA_RESERVE_Y_OFFSET,
+    ],
+  ];
+  if (baseBytes && quoteBytes) {
+    for (let off = 8; off + 128 <= raw.data.length; off++) {
+      const xIsBase = bytesEqual(off, baseBytes) && bytesEqual(off + 32, quoteBytes);
+      const xIsQuote = bytesEqual(off, quoteBytes) && bytesEqual(off + 32, baseBytes);
+      if (xIsBase || xIsQuote) {
+        candidates.push([off, off + 32, off + 64, off + 96]);
+        break;
+      }
+    }
+  }
+  for (const [mintXOff, mintYOff, reserveXOff, reserveYOff] of candidates) {
+    const mintX = readPubkey(mintXOff);
+    const mintY = readPubkey(mintYOff);
+    const reserveX = readPubkey(reserveXOff);
+    const reserveY = readPubkey(reserveYOff);
+    if (reserveX === ZERO_ADDRESS || reserveY === ZERO_ADDRESS) continue;
+    // Map X/Y onto base/quote so baseVault always holds the base token
+    // (DLMM sorts X < Y as pubkeys; DexScreener does not). The pool's
+    // own mints must include the pair's known token(s), otherwise this
+    // candidate offset set is not the pair's pool.
+    let baseMint: string;
+    let quoteMint: string;
+    let baseVault: string;
+    let quoteVault: string;
+    if (baseTokenAddress != null) {
+      if (mintX === baseTokenAddress) {
+        baseMint = mintX; baseVault = reserveX; quoteMint = mintY; quoteVault = reserveY;
+      } else if (mintY === baseTokenAddress) {
+        baseMint = mintY; baseVault = reserveY; quoteMint = mintX; quoteVault = reserveX;
+      } else {
+        continue;
+      }
+      if (quoteTokenAddress != null && quoteMint !== quoteTokenAddress) continue;
+    } else if (quoteTokenAddress != null) {
+      if (mintX === quoteTokenAddress) {
+        quoteMint = mintX; quoteVault = reserveX; baseMint = mintY; baseVault = reserveY;
+      } else if (mintY === quoteTokenAddress) {
+        quoteMint = mintY; quoteVault = reserveY; baseMint = mintX; baseVault = reserveX;
+      } else {
+        continue;
+      }
+    } else {
+      baseMint = mintX; baseVault = reserveX; quoteMint = mintY; quoteVault = reserveY;
+    }
+    return { baseVault, quoteVault, baseMint, quoteMint, lpMint: ZERO_ADDRESS };
+  }
+  return null;
+}
+
 /** Language-independent ids for the dangerous Token-2022 extensions
  *  (used by the risk summary; the localized names live in i18n.ts). */
 export type Token2022ExtensionId =
@@ -836,6 +1138,7 @@ async function checkBundle(
   pairCreatedAt: number | null | undefined,
   excludeAddresses: string[],
   lang: Lang,
+  opts?: CheckAbortOpts,
 ): Promise<{
   status: CheckStatus;
   detail: string;
@@ -864,6 +1167,14 @@ async function checkBundle(
   const pairAgeDays = (Date.now() - pairCreatedAt) / 86_400_000;
   if (pairAgeDays >= 7) return skipped;
   if (supplyRaw <= 0) return unavailable;
+  // M11 — global deadline (H2: abort promptly when the App cancels or
+  // the deadline passes). Default 45s from the start of this check, so
+  // a total RPC outage degrades to UNAVAILABLE instead of stalling for
+  // minutes across 20 sig pages + 12 tx fetches × 4 endpoints × 10s.
+  const effectiveOpts: CheckAbortOpts = {
+    isCancelled: opts?.isCancelled,
+    deadlineMs: opts?.deadlineMs ?? Date.now() + 45_000,
+  };
   try {
     type SigInfo = { signature: string; slot: number };
     // Page backward to the TRUE beginning of history: getSignaturesForAddress
@@ -876,6 +1187,7 @@ async function checkBundle(
     let before: string | undefined;
     let reachedBeginning = false;
     for (let page = 0; page < 20; page++) {
+      if (shouldStop(effectiveOpts)) return unavailable;
       const batch = (await rpcCallAny<SigInfo[]>('getSignaturesForAddress', [
         mint,
         { limit: 100, before, commitment: 'confirmed' },
@@ -925,6 +1237,7 @@ async function checkBundle(
     };
     const txs: TxParsed[] = [];
     for (let i = 0; i < oldest.length; i += 4) {
+      if (shouldStop(effectiveOpts)) return unavailable;
       const batch = oldest.slice(i, i + 4);
       const results = await Promise.all(
         batch.map((s) =>
@@ -1313,6 +1626,11 @@ function parseToken2022Extensions(data: Uint8Array): Set<number> | null {
     // Exactly 166 bytes with the Mint discriminator at 165 and no TLV
     // entries = a Token-2022 mint with NO extensions — not "unavailable".
     if (data.length === 166 && data[165] === 1) return new Set<number>();
+    // L17 — exactly 83 bytes with the Mint discriminator at 82 and no
+    // TLV entries = the same clean case one byte shorter (discriminator
+    // directly after the 82-byte base mint). It previously fell through
+    // to null ("unavailable", warn) instead of an empty set (clean).
+    if (data.length === 83 && data[82] === 1) return new Set<number>();
     if (data.length > 166 && data[165] === 1) {
       off = 166;
     } else if (data.length > 83 && data[82] === 1) {
@@ -1435,7 +1753,20 @@ async function checkSellable(
 ): Promise<boolean | null> {
   const tokens =
     priceUsd != null && priceUsd > 0 ? 1 / priceUsd : 1; // ~$1 worth, or 1 token
-  const amount = String(Math.max(1, Math.floor(tokens * 10 ** decimals)));
+  // L18 — BigInt amount, clamped to u64 max: the old
+  // String(Math.max(1, Math.floor(tokens * 10 ** decimals))) overflowed
+  // Jupiter's u64 for prices ≲5e-11 and produced exponential notation
+  // ("1e+21") at ≲1e-12, so Jupiter 400'd exactly for the near-dead
+  // tokens this check matters most for. A non-finite product clamps to
+  // u64 max as well (never BigInt(Infinity), which throws).
+  const U64_MAX = (1n << 64n) - 1n;
+  const approx = tokens * 10 ** decimals;
+  let amountBig: bigint;
+  if (!Number.isFinite(approx)) amountBig = U64_MAX;
+  else if (approx < 1) amountBig = 1n;
+  else amountBig = BigInt(Math.floor(approx));
+  if (amountBig > U64_MAX) amountBig = U64_MAX;
+  const amount = amountBig.toString();
   const query =
     `inputMint=${mint}&outputMint=${SOL_MINT}&amount=${amount}&slippageBps=100`;
   const urls = [
@@ -1554,6 +1885,18 @@ export function fmtUsd(n: number | null | undefined, lang: Lang): string {
   const t = STRINGS[lang];
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)} ${t.million}`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)} ${t.thousand}`;
+  // M18 — tiny prices must never render as "$0.00": below $0.01 use up
+  // to 10 decimal places with trailing zeros trimmed (same shape as the
+  // App's formatter), and below 1e-10 use 3 significant digits so a
+  // nonzero price never collapses to "$0". Normal prices (≥ $0.01) are
+  // byte-identical to before.
+  if (n > 0 && n < 0.01) {
+    if (n < 1e-10) {
+      const decimals = 2 - Math.floor(Math.log10(n)); // 3 significant digits
+      return `$${n.toFixed(decimals).replace(/0+$/, '').replace(/\.$/, '')}`;
+    }
+    return `$${n.toFixed(10).replace(/0+$/, '').replace(/\.$/, '')}`;
+  }
   return `$${n.toFixed(2)}`;
 }
 
@@ -1582,35 +1925,59 @@ export function fmtPct(n: number | null | undefined): string {
  *  pages = 300 signatures) count as "unknown", not fresh — a wallet
  *  with 300+ lifetime transactions is not a throwaway fresh wallet, but
  *  its exact first-activity date is out of cheap reach.
- *  Cost: usually 1 call per wallet (fresh/insider wallets have short
- *  histories); capped at 3 calls per wallet, 3 wallets in flight. */
+ *  M10 — the input addresses are TOKEN ACCOUNTS (from
+ *  getTokenLargestAccounts), not wallets: each account's OWNER wallet
+ *  is resolved first (getAccountInfo → owner) and the WALLET's history
+ *  is paged. A 5-year-old wallet that first bought 3 days ago is not
+ *  "fresh" — the old code measured the token account's age instead.
+ *  H2 — only the TOP 5 holders are checked (was 10): 5 wallets ×
+ *  (1 owner read + ≤3 sig pages) ≈ 20 calls worst case, and the
+ *  secondaries are staggered behind the main scan. H2 — `opts` aborts
+ *  the loops promptly on cancellation / deadline (a default 60s
+ *  deadline applies when the caller passes none). Cost: usually 1–2
+ *  calls per wallet (fresh/insider wallets have short histories);
+ *  capped at 3 sig pages per wallet, wallets checked one at a time so
+ *  the burst stays small. */
 export async function checkFreshWallets(
   addresses: string[],
+  opts?: CheckAbortOpts,
 ): Promise<{ fresh: number; checked: number; unknown: number; total: number }> {
   const FRESH_DAYS = 7;
   const MAX_PAGES = 3;
   const PAGE_SIZE = 100;
-  const CONCURRENCY = 3;
   const cutoff = Date.now() - FRESH_DAYS * 86_400_000;
+  // H2 — top 5 only, even if the caller passes all 10.
+  const list = addresses.slice(0, 5);
+  const effectiveOpts: CheckAbortOpts = {
+    isCancelled: opts?.isCancelled,
+    deadlineMs: opts?.deadlineMs ?? Date.now() + 60_000,
+  };
 
-  async function firstActivity(address: string): Promise<number | null | 'unknown'> {
+  async function firstActivity(
+    address: string,
+  ): Promise<number | null | 'unknown'> {
     try {
       let before: string | undefined;
-      let oldest: number | null = null;
       for (let page = 0; page < MAX_PAGES; page++) {
+        if (shouldStop(effectiveOpts)) return 'unknown';
         const batch =
           (await rpcCallAny<{ signature: string; blockTime?: number | null }[]>(
             'getSignaturesForAddress',
             [address, { limit: PAGE_SIZE, before, commitment: 'confirmed' }],
           )) ?? [];
-        if (batch.length === 0) break;
-        const last = batch[batch.length - 1];
-        if (last.blockTime != null) oldest = last.blockTime * 1000;
-        if (batch.length < PAGE_SIZE) {
-          // Reached the beginning — oldest is the first activity.
-          return oldest;
+        if (batch.length === 0) {
+          // No signatures at all — no on-chain activity to judge.
+          return null;
         }
-        before = last.signature;
+        if (batch.length < PAGE_SIZE) {
+          // Reached the beginning — the LAST tx of this batch is the
+          // first activity. M10 sub-bug: a null blockTime there means
+          // the first-activity date is UNKNOWN — it must not keep an
+          // older page's newer timestamp (that read as false "fresh").
+          const last = batch[batch.length - 1];
+          return last.blockTime != null ? last.blockTime * 1000 : 'unknown';
+        }
+        before = batch[batch.length - 1].signature;
       }
       return 'unknown'; // history deeper than the cap
     } catch {
@@ -1618,21 +1985,34 @@ export async function checkFreshWallets(
     }
   }
 
+  // Resolve each token account to its owner wallet first (M10) — one
+  // read per holder, in parallel; an unresolvable owner is "unknown",
+  // never silently scored as the token account's age.
+  if (shouldStop(effectiveOpts)) {
+    return { fresh: 0, checked: 0, unknown: list.length, total: list.length };
+  }
+  const owners = await Promise.all(
+    list.map((a) => getTokenAccountOwner(a).catch(() => null)),
+  );
   let fresh = 0;
   let checked = 0;
   let unknown = 0;
-  for (let i = 0; i < addresses.length; i += CONCURRENCY) {
-    const chunk = addresses.slice(i, i + CONCURRENCY);
-    const results = await Promise.all(chunk.map((a) => firstActivity(a)));
-    for (const r of results) {
-      if (r === 'unknown') unknown++;
-      else {
-        checked++;
-        if (r != null && r >= cutoff) fresh++;
-      }
+  for (let i = 0; i < list.length; i++) {
+    if (shouldStop(effectiveOpts)) break;
+    const owner = owners[i];
+    if (owner == null) {
+      unknown++;
+      continue;
     }
+    const r = await firstActivity(owner);
+    if (r === 'unknown') unknown++;
+    else {
+      checked++;
+      if (r != null && r >= cutoff) fresh++;
+    }
+    if (shouldStop(effectiveOpts)) break;
   }
-  return { fresh, checked, unknown, total: addresses.length };
+  return { fresh, checked, unknown, total: list.length };
 }
 
 /** One inter-wallet transfer of the scanned mint (owner → owner). */
@@ -1702,6 +2082,7 @@ export async function checkInterWalletTransfers(
   holderAccounts: string[],
   sinceMs: number | null,
   creator: string | null = null,
+  opts?: CheckAbortOpts,
 ): Promise<InterWalletResult | null> {
   type BalanceEntry = {
     accountIndex?: number;
@@ -1737,10 +2118,22 @@ export async function checkInterWalletTransfers(
   const ownerOfHolder = new Map<string, string>();
   let checked = 0;
   let unknown = 0;
+  // H2 — abort promptly on cancellation / deadline (default 60s when
+  // the caller passes none); a stopped run returns null (unavailable)
+  // instead of burning the rest of the RPC budget on a stale result.
+  const effectiveOpts: CheckAbortOpts = {
+    isCancelled: opts?.isCancelled,
+    deadlineMs: opts?.deadlineMs ?? Date.now() + 60_000,
+  };
+  let stopped = false;
 
   // Per-holder: sig list → txs → owner deltas → edges. Holders 2 at a
   // time so the burst stays small; tx fetches in batches of 3.
   async function checkHolder(account: string): Promise<void> {
+    if (shouldStop(effectiveOpts)) {
+      stopped = true;
+      return;
+    }
     let sigs: { signature: string }[];
     try {
       sigs =
@@ -1756,6 +2149,10 @@ export async function checkInterWalletTransfers(
     if (sigs.length === 0) return;
     const txs: TxParsed[] = [];
     for (let i = 0; i < sigs.length; i += 3) {
+      if (shouldStop(effectiveOpts)) {
+        stopped = true;
+        return;
+      }
       const results = await Promise.all(
         sigs.slice(i, i + 3).map((s) =>
           rpcCallAny<TxParsed>('getTransaction', [
@@ -1845,16 +2242,21 @@ export async function checkInterWalletTransfers(
   }
 
   for (let i = 0; i < holderAccounts.length; i += 2) {
+    if (shouldStop(effectiveOpts)) {
+      stopped = true;
+      break;
+    }
     await Promise.all(holderAccounts.slice(i, i + 2).map((a) => checkHolder(a)));
   }
+  if (stopped) return null;
   if (checked === 0) return null;
 
-  // Shared source: one sender (not a checked holder's own wallet) that
-  // funded 2+ distinct checked holder accounts.
-  const holderOwners = new Set(ownerOfHolder.values());
+  // Shared source: one sender that funded 2+ distinct checked holder
+  // accounts. M13 — holder senders are NOT exempt: a creator / top
+  // holder that split to 2+ other top holders is exactly the pattern
+  // this rule exists to catch, and the old exemption hid it.
   const fundedBy = new Map<string, Set<string>>();
   for (const e of edges.values()) {
-    if (holderOwners.has(e.from)) continue;
     const set = fundedBy.get(e.from) ?? new Set<string>();
     for (const [acct, owner] of ownerOfHolder) {
       if (owner === e.to) set.add(acct);
@@ -1955,10 +2357,26 @@ export function parseLpLockers(
   if (lockers == null) return null;
   let best: { unlockAtMs: number; lockerType: string } | null = null;
   let futureCount = 0;
+  // L21 — seconds-range validation: RugCheck's unlockDate is unix
+  // SECONDS, but a millisecond value would be multiplied by 1000 again
+  // (year ~59000 countdown). Values ≥1e12 are treated as milliseconds
+  // (a seconds value that large is year 33658+); values between the
+  // year-2100 seconds bound and 1e12 are absurd in either unit and are
+  // rejected; anything past year 2100 even as milliseconds is rejected.
+  // Live RugCheck data is clean — this is defensive only.
+  const MAX_SECONDS = 4_102_444_800; // 2100-01-01T00:00:00Z
   for (const l of Object.values(lockers)) {
     const ud = typeof l.unlockDate === 'number' ? l.unlockDate : 0;
     if (ud <= 0) continue; // no unlock date (permanent lock)
-    const ms = ud * 1000;
+    let ms: number;
+    if (ud >= 1e12) {
+      ms = ud; // already milliseconds
+    } else if (ud > MAX_SECONDS) {
+      continue; // absurd: past 2100 as seconds, before 2001 as ms
+    } else {
+      ms = ud * 1000;
+    }
+    if (ms > MAX_SECONDS * 1000) continue; // past year 2100 — absurd
     if (ms <= nowMs) continue; // already unlocked
     futureCount++;
     if (!best || ms < best.unlockAtMs)
@@ -1977,7 +2395,10 @@ export function parseLpLockers(
  *  the LP check's own line) and not on a bonding curve. */
 export async function checkLpUnlocks(
   mint: string,
+  opts?: CheckAbortOpts,
 ): Promise<{ unlockAtMs: number; lockerType: string; lockerCount: number } | null> {
+  // v7.13 (H2) — honour the same cancellation/deadline opts as the other
+  // secondary checks; a stale LP fetch must not overwrite a newer result.
   type RugCheckReport = {
     lockers?: Record<string, { unlockDate?: number; type?: string }> | null;
     error?: unknown;
@@ -1986,8 +2407,10 @@ export async function checkLpUnlocks(
     `${PROXY_URL}/rugcheck/${mint}`,
     `https://api.rugcheck.xyz/v1/tokens/${mint}/report`,
   ];
+  if (shouldStop(opts)) return null;
   let json: RugCheckReport | null = null;
   for (const url of REPORT_URLS) {
+    if (shouldStop(opts)) return null;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 10_000);
     try {
@@ -2018,10 +2441,14 @@ export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise
   // 1) On-chain mint account (supply, decimals, authorities).
   // If the address is not a mint, it may be a pair/pool address — try to
   // resolve it to its base token via DexScreener and scan that instead
-  // (one level only, no recursion). When the base token cannot be found,
-  // the specific pair-guidance error is thrown — never a generic
-  // "not found". A mint-not-found (no account at all) is NOT resolved:
-  // a pair address always exists as an account.
+  // (one level only, no recursion). H3 — this ALSO runs on
+  // mint-not-found, not only on not-a-mint: DexScreener lowercases the
+  // pair address in its URLs, so a pasted pair link extracts a
+  // lowercased address that exists as no account on-chain, and the pair
+  // lookup (by URL) is the only way to recover the real mint. When the
+  // base token cannot be found, a not-a-mint keeps the specific
+  // pair-guidance error while a genuinely missing mint keeps the
+  // original "no account" error — never a generic "not found".
   let mint: PublicKey;
   try {
     mint = new PublicKey(mintAddress.trim());
@@ -2033,9 +2460,17 @@ export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise
   try {
     mintData = await readMint(mint, lang);
   } catch (err) {
-    if (err instanceof Error && err.message === t.notMintError) {
+    if (
+      err instanceof Error &&
+      (err.message === t.notMintError || err.message === t.mintNotFoundError)
+    ) {
       const base = await resolvePairBaseToken(mintAddress.trim());
-      if (!base) throw new Error(t.pairGuidanceError);
+      if (!base) {
+        // Pair lookup failed: a not-a-mint address gets the
+        // pair-guidance error; a genuinely missing mint keeps the
+        // original "no account" error.
+        throw err.message === t.notMintError ? new Error(t.pairGuidanceError) : err;
+      }
       resolvedFromPair = mintAddress.trim();
       mint = new PublicKey(base);
       mintData = await readMint(mint, lang);
@@ -2064,9 +2499,10 @@ export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise
   const priceUsd = pair?.priceUsd != null ? Number(pair.priceUsd) : null;
 
   // 3) AMM pool derivation (best effort): pool vault for the holder
-  //    exclusion + LP mint for the burn/lock check. Raydium AMM v4 and
-  //    PumpSwap AMM both expose vaults + LP mint; anything else reports
-  //    "cannot be checked" honestly.
+  //    exclusion + LP mint for the burn/lock check. Raydium AMM v4,
+  //    PumpSwap AMM, Orca Whirlpool and Meteora DLMM all expose their
+  //    reserve vaults; anything else reports "cannot be checked"
+  //    honestly.
   let poolInfo: AmmPoolInfo | null = null;
   let poolVaultAddress: string | null = null;
   if (pair?.pairAddress) {
@@ -2078,6 +2514,22 @@ export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise
       ).catch(() => null);
     } else if (pair.dexId === 'pumpswap') {
       poolInfo = await readPumpSwapPool(
+        pair.pairAddress,
+        pair.baseToken?.address,
+        pair.quoteToken?.address,
+      ).catch(() => null);
+    } else if (pair.dexId === 'orca') {
+      // M12 — Orca Whirlpool vaults were never excluded from the top-10
+      // (only Raydium/PumpSwap derived vaults); a Whirlpool vault can
+      // hold a large share and read as a whale.
+      poolInfo = await readOrcaPool(
+        pair.pairAddress,
+        pair.baseToken?.address,
+        pair.quoteToken?.address,
+      ).catch(() => null);
+    } else if (pair.dexId === 'meteora') {
+      // M12 — same for Meteora DLMM reserve vaults.
+      poolInfo = await readMeteoraPool(
         pair.pairAddress,
         pair.baseToken?.address,
         pair.quoteToken?.address,
@@ -2172,11 +2624,22 @@ export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise
     await Promise.all([
       readTopHolders(mint, supplyRaw, excludeAddresses).catch(() => null),
       checkSellable(effectiveMint, mintData.decimals, priceUsd),
-      lpCheckP,
-      metadataDataP.then((d) => checkMetadataFromData(d, lang)),
+      // L20 — every branch is guarded: lpCheckP and the three
+      // metadataDataP branches previously had no .catch, so a throw
+      // there (e.g. PDA derivation) rejected the whole Promise.all
+      // and killed the scan instead of degrading one card.
+      lpCheckP.catch(() => ({
+        status: 'info' as CheckStatus,
+        detail: t.lpUnavailable,
+        burnedPct: null,
+        top1Pct: null,
+      })),
+      metadataDataP
+        .then((d) => checkMetadataFromData(d, lang))
+        .catch(() => ({ status: 'info' as CheckStatus, detail: t.metadataUnavailable })),
       checkToken2022(mint, lang),
-      metadataDataP.then((d) => fetchTokenLogoFromData(d)),
-      metadataDataP.then((d) => (d ? parseMetadataFields(d) : null)),
+      metadataDataP.then((d) => fetchTokenLogoFromData(d)).catch(() => null),
+      metadataDataP.then((d) => (d ? parseMetadataFields(d) : null)).catch(() => null),
       // v7.6 — bundle heuristic (young tokens only; old tokens skip it).
       checkBundle(mint.toBase58(), supplyRaw, pair?.pairCreatedAt ?? null, excludeAddresses, lang),
       isYoungToken
@@ -2246,6 +2709,7 @@ export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise
   // whale — e.g. a dev wallet quietly holding 75%, or a bundle ready to dump
   // in unison — has not been ruled out.
   const score = holdersUnavailable || bundleSuspected ? Math.min(79, rawScore) : rawScore;
+  const verdict = verdictFor(score);
 
   const liquidityLostReason: string | null =
     liqPts >= 30
@@ -2313,7 +2777,16 @@ export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise
         concPts >= 30
           ? null
           : top10SharePct == null
-            ? t.holdersLostNoData
+            ? // M2b — the "(Caution)" cap claim is only true when the
+              // verdict actually IS Caution: on a Berisiko Tinggi
+              // verdict (score already below 79) the cap line would
+              // contradict the verdict, so the note is dropped entirely
+              // — same gate as summary.ts's appendHoldersNote (M2).
+              // The card's detail line still states the data is
+              // unverified, so nothing is lost.
+              verdict === 'Berisiko Tinggi'
+              ? null
+              : t.holdersLostNoData
             : t.holdersLostDetail(fmtPct(top10SharePct)),
       detail:
         top10SharePct == null
@@ -2403,12 +2876,14 @@ export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise
       id: 'token2022',
       title: t.token2022Title,
       status: token2022Check.status,
-      // Scored against the max penalty (35) so the existing lostReason
-      // line renders the deducted points, e.g. "−15 poin karena
-      // Permanent Delegate". Clean SPL mints show 35/35, no loss.
+      // M9 — this is a PENALTY, not a 35-point sub-score: scored checks
+      // must sum to 100, and with scored: true they summed to 135
+      // (PYUSD's cards summed to 30 while the total was 0). The score
+      // field below is display-only now; rawScore still subtracts the
+      // penalty exactly as before — NO score change.
       score: TOKEN2022_MAX_PENALTY - token2022Penalty,
       maxScore: TOKEN2022_MAX_PENALTY,
-      scored: true,
+      scored: false,
       // Display the penalty itself, not "35/35 pts": the card's mechanism
       // is a deduction from the 100-point total (20+20+30+30), so showing
       // a 35-point sub-score would make the cards add up to 123/135.
@@ -2471,7 +2946,7 @@ export async function scanToken(mintAddress: string, lang: Lang = 'en'): Promise
     lpTop1Pct: lpCheck.top1Pct,
     metadataMutable: metadataFields ? metadataFields.isMutable : null,
     score,
-    verdict: verdictFor(score),
+    verdict,
     checks,
     scannedAt: new Date().toISOString(),
     rpcUsed: mintData.rpcUsed,

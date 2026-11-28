@@ -230,6 +230,8 @@ export const ru: Dict = {
   historyVerdictChanged: (from, to) => `Вердикт изменился: ${from} → ${to}`,
   historyBetter: 'балл вырос',
   historyWorse: 'балл упал',
+  historyTop10Better: 'доля топ-10 улучшилась',
+  historyTop10Worse: 'доля топ-10 ухудшилась',
   batchTitle: 'Пакетное сканирование',
   batchPlaceholder: 'Один адрес mint в строке (макс. 10)',
   batchScanButton: 'Сканировать всё',

@@ -57,11 +57,11 @@ export const vi: Dict = {
   statsPriceChange24h: 'Giá 24h',
   statsTxns24h: 'Giao Dịch 24h',
   statsSupply: 'Tổng Cung',
-  statsTop10: 'Top 10 Holder',
+  statsTop10: 'Top 10 Người Nắm Giữ',
   statsGroupMarket: 'Thị Trường',
   statsGroupToken: 'Token',
   checksHeading: 'Chi Tiết Kiểm Tra',
-  topHoldersHeading: 'Top 5 Holder',
+  topHoldersHeading: 'Top 5 Người Nắm Giữ',
   scannedAt: 'Đã quét',
   viewOnDexscreener: 'DexScreener',
   viewOnSolscan: 'Solscan',
@@ -174,7 +174,7 @@ export const vi: Dict = {
     'Không kiểm tra được LP cho pool này (không phải pool Raydium, hoặc không đọc được dữ liệu LP).',
   lpExplanation:
     'Kiểm tra bổ sung (ngoài thang điểm 100): khi LP token bị burn, dev không thể rút thanh khoản và rug. Nếu LP vẫn do một ví nắm giữ, rủi ro vẫn còn.',
-  metadataTitle: 'Metadata Token',
+  metadataTitle: 'Metadata của Token',
   metadataImmutable:
     'Metadata đã bị khóa (immutable) — tên, ký hiệu và URI không thể thay đổi nữa.',
   metadataMutable:
@@ -232,6 +232,8 @@ export const vi: Dict = {
   historyVerdictChanged: (from, to) => `Kết luận đã đổi: ${from} → ${to}`,
   historyBetter: 'điểm đã tăng',
   historyWorse: 'điểm đã giảm',
+  historyTop10Better: 'tỷ lệ top 10 đã cải thiện',
+  historyTop10Worse: 'tỷ lệ top 10 đã xấu đi',
   batchTitle: 'Quét Hàng Loạt',
   batchPlaceholder: 'Một địa chỉ mint mỗi dòng (tối đa 10)',
   batchScanButton: 'Quét Tất Cả',

@@ -10,9 +10,13 @@ import { fmtPct, fmtUsd, type ScanResult } from './scanner';
 
 /** v7.5: when holder data could not be read, the score was capped at 79 —
  *  say so plainly so a Caution verdict on an otherwise clean token is
- *  never a mystery. Appended to every summary path. */
+ *  never a mystery. Appended to every summary path where the cap actually
+ *  binds — NOT on a Berisiko Tinggi verdict, where the score is already
+ *  below 79 and the "(Waspada)" claim would contradict the verdict (M2). */
 function appendHoldersNote(text: string, r: ScanResult, t: Dict): string {
-  return r.holdersUnavailable ? `${text} ${t.summaryHoldersUnavailable}` : text;
+  return r.holdersUnavailable && r.verdict !== 'Berisiko Tinggi'
+    ? `${text} ${t.summaryHoldersUnavailable}`
+    : text;
 }
 
 /** "A, B dan C" / "A, B and C" — natural list join in both languages. */
@@ -87,7 +91,11 @@ export function buildRiskSummary(r: ScanResult, lang: Lang): string {
       : r.sellable === false
         ? t.summaryFatalNoSellConsequence
         : t.summaryFatalTop1Consequence;
-    return appendHoldersNote(`${s1} ${s2}`, r, t);
+    // M1 — the fatal branch is always a non-Aman verdict, so append the
+    // DYOR/price reminder after the consequence sentence, matching the
+    // all-green and mild-flag branches.
+    const reminder = r.verdict !== 'Aman' ? ` ${t.summaryPriceReminder}` : '';
+    return appendHoldersNote(`${s1} ${s2}${reminder}`, r, t);
   }
 
   // ---- 2) Market / distribution risks, in priority order. ----
@@ -174,7 +182,9 @@ export function buildRiskSummary(r: ScanResult, lang: Lang): string {
   const strongTop = top.find((f) => f.strong);
   // v7.12.3 — same dedup as the all-green branch: when the verdict is
   // Aman the verdict text already carries the DYOR line, so the summary
-  // ends after the flags instead of repeating the reminder.
+  // ends after the flags instead of repeating the reminder. M1: when a
+  // strong flag is present AND the verdict is not Aman, the reminder
+  // goes after the consequence sentence (it was previously missing here).
   const s2 =
     strongTop?.kind === 'noMarket'
       ? t.summaryNoMarketConsequence
@@ -183,5 +193,7 @@ export function buildRiskSummary(r: ScanResult, lang: Lang): string {
         : r.verdict === 'Aman'
           ? ''
           : t.summaryPriceReminder;
-  return appendHoldersNote(s2 ? `${s1} ${s2}` : s1, r, t);
+  const reminder =
+    strongTop && r.verdict !== 'Aman' ? ` ${t.summaryPriceReminder}` : '';
+  return appendHoldersNote(s2 ? `${s1} ${s2}${reminder}` : s1, r, t);
 }

@@ -1718,3 +1718,417 @@ Aturan: user tidak boleh melihat dua sinyal yang terlihat bertentangan tanpa sat
 - `npm run build` (tsc -b + vite, strict) **LOLOS**. Bundle baru `dist/assets/index-D5ER9U3U.js` + CSS `index-CkFy1XZV.css`; `RugRadar v7.12.7` ada; string baru (`Likuiditas DEX terlihat tipis`, `skor membaik`) + class baru (`sub-finding`, `market-note`, `check-mid`) terkonfirmasi di bundle; **0 `helius-rpc.com`**.
 - Keyed test: BONK 81 Aman / WIF 88 / POPCAT 88 / PYUSD 0.
 - TIDAK deploy, TIDAK push — build + verifikasi lokal saja. Live check + tes HP Yukka masih menunggu — BUKAN final sampai Yukka ngetes sendiri dari HP.
+
+
+## FULL BUG SWEEP — pre-submit audit (28 Nov ~15:09–15:35 WIB, FROZEN v7.12.7)
+- 4 parallel audit passes: scanner.ts (scoring/RPC), App.tsx + summary.ts (flows),
+  i18n + CSS + Worker proxy, live edge-case probes (temp scripts, deleted after use).
+- **FREEZE (user 15:12 WIB): app frozen at v7.12.7 — no fixes applied, no version
+  bump, except a CRITICAL bug (wrong score/verdict on a core demo token, crash,
+  or broken scan/batch/share flow). VERDICT: NO CRITICAL BUG FOUND.**
+  Keyed test run twice independently in this sweep: BONK 81 / WIF 88 / POPCAT 88 /
+  PYUSD 0 (both runs). Scan, batch scan, and share all verified working. The
+  closest calls (DexScreener pair-link failure, 120 req/min self-trip, scan/batch
+  race) produce clean errors or honest fail-safe degradation — not wrong scores
+  or crashes. Everything below is therefore KNOWN ISSUES — POST-SUBMIT, unfixed.
+- **Frozen-state verification (this sweep): `npm run build` (tsc -b + vite, strict)
+  PASSES; keyed test BONK 81 Aman / WIF 88 / POPCAT 88 / PYUSD 0.**
+- Verified clean in this sweep: i18n parity TRUE (267 keys, 0 missing/empty, all 7
+  locales, tsc-enforced); no Helius secret leak; RugCheck 403/429 handled gracefully;
+  `getAssetsByCreator` correctly absent; score bands, verdict thresholds, holder
+  bands, Token-2022 penalties (−15/−10/−10, max −35, floor 0), 79-cap single choke
+  point, CEX ATA exclusion (BONK raw top-10 ≈40% → 32.2% after Binance-3 ATA
+  exclusion), PumpSwap vault exclusion, Jupiter 400 → sellable false; no v7.10
+  B1–B12 regression (B4's premise regressed — see H2 below).
+
+### HIGH (post-submit, fix first)
+- **H1 — Single scan can run concurrently with a batch scan.** App.tsx:665-668,
+  777-778, 1160, 1216, 1240, 1251, 1845. `runScan` guards only on `loading`, never
+  on `batchRunning`; single-scan controls + language select are `disabled={loading}`
+  only. A scan started mid-batch interleaves `setResult`/history writes and
+  defeats the sequential-batching reason for the 120 req/min limit. Fix: return
+  early in `runScan` when `batchRunning`, disable controls + language select
+  while batching.
+- **H2 — A single young-token scan can trip its own 120 req/min proxy limit
+  (B4 regression).** worker/rugradar-proxy.js:38-52; scanner.ts:1587,1700,879,931.
+  Worst case ≈127 proxy RPC hits for one young-token scan (main ~42 incl. bundle
+  up to 32 + fresh wallets 30 + transfers ~55), all three secondary steps firing
+  in parallel; a 10-token batch is ~420/min. Later calls get 429, `rpcCallAny`
+  falls back to throttled public RPCs, and the holder retry burns a 2nd quota hit
+  on an exhausted window. Fix: budget main + secondaries together (stagger
+  secondaries, cut fresh-wallet to top-5), back off (don't immediately re-hit) on
+  429, propagate cancellation to in-flight loops.
+- **H3 — Pasting a DexScreener pair link fails with "No account found".**
+  Live probe: the app's own BONK result links to
+  `dexscreener.com/solana/5zpyutju9ee6jfymdgok7f6s5kczqtc9fomp3uekuya9`
+  (DexScreener lowercases the pair address); `extractMintCandidate` returns the
+  lowercased string, `scanToken` throws mint-not-found, and pair resolution is
+  only attempted on `notMintError`, never on mint-not-found. A raw correct-case
+  pair address resolves fine (BONK pair → 81, WIF Raydium pair → 88). Fix:
+  re-fetch the pair address from DexScreener by URL, or attempt pair resolution
+  on mint-not-found too.
+
+### MEDIUM (post-submit)
+- **M1 — DYOR/price reminder missing on Waspada/Berisiko in two summary paths.**
+  summary.ts:90 (fatal branch) and :174-186 (strong-flag branch) never append
+  `summaryPriceReminder`, and `verdictTextWaspada`/`verdictTextBerisiko`
+  (i18n.ts:400-404) contain no DYOR line — contradicting the v7.12.3 comment.
+  Fix: append the reminder after the consequence sentence whenever verdict ≠ Aman.
+- **M2 — Holders-unavailable note contradicts a Berisiko verdict.** summary.ts:8-10.
+  `appendHoldersNote` appends "score is capped at 79 (Waspada)" on every path when
+  holders are unavailable, even when the verdict is Berisiko Tinggi (e.g. score 0).
+  Fix: append only when the verdict is actually Waspada, or drop the "(Waspada)" claim.
+- **M3 — A failed re-scan wipes the good result on screen.** App.tsx:696.
+  `runScan` does `setResult(null)` before the fetch; on error only `setError`
+  runs, so a transient RPC failure on Rescan/retry destroys the displayed score.
+  Fix: preserve the previous result on error.
+- **M4 — Same-tick double-submit bypasses the `loading` guard; no request
+  identity.** App.tsx:665-668. `setLoading(true)` takes effect only after
+  re-render, so two `runScan` calls in one tick both pass and the older scan can
+  overwrite the newer result. Fix: synchronous in-flight ref / incrementing scan
+  id, ignore stale completions.
+- **M5 — Batch lines are never deduped.** App.tsx:780-788 (also probed live).
+  The same mint twice runs two full (~10–25 RPC) scans and produces two rows
+  and two history entries. Fix: dedupe lines, keeping the first occurrence.
+- **M6 — Stored error/pair-note strings go stale on language switch.**
+  App.tsx:813, 835, 877, 1195. Batch row errors, `batchError`, main `error`,
+  `pairNote` are frozen strings captured at scan time. Fix: store error codes,
+  translate at render.
+- **M7 — Share-card name truncation is char-count based, not width based.**
+  App.tsx:73-74. `name.length > 30 ? slice(0,27)+'…'` at 44px can clip wide
+  CJK/emoji glyphs past the 1080px canvas and can split a surrogate pair.
+  Fix: truncate by `ctx.measureText` width.
+- **M8 — `extractMintCandidate` matches any 32–44-char base58 substring.**
+  scanner.ts:263,271-287. No anchors/length validation: an 88-char tx signature
+  returns its first 44 chars; an EVM address returns a base58-looking run.
+  Fix: reject `0x…` input, require the candidate to decode to exactly 32 bytes.
+- **M9 — Token-2022 check double-counts in the data model.** scanner.ts:2411 vs
+  :2241. The check has `scored: true, maxScore: 35, score: 35 − penalty`, but
+  `rawScore` never adds it — it only subtracts the penalty. Scored checks sum to
+  135 max; PYUSD's cards sum to 30 while `result.score` is 0. Score math itself
+  is correct. Fix: `scored: false` (it's a penalty, like the other informational
+  checks).
+- **M10 — Fresh-wallet check measures token-account age, not wallet age.**
+  scanner.ts:1587-1617. `top10Holders` are token accounts from
+  `getTokenLargestAccounts`, not wallets (live proof: BONK #1 token account
+  `2vPvEovB…` has owner `51yZyD…`). A 5-year-old wallet that first bought 3 days
+  ago counts as "fresh", and for any pair <7 days old all 10 holders count fresh
+  by construction. (v7.12.7's ≥7-day warn gate mitigates the young-pair false
+  positive.) Sub-bug :1608: a null `blockTime` on the oldest tx keeps the previous
+  page's newer timestamp → false "fresh". Fix: resolve each token account's owner
+  first, then page the wallet's history.
+- **M11 — No overall timeout on the bundle / holder RPC loops.**
+  scanner.ts:833-930, `getLargestAccounts`. `checkBundle` pages up to 20 sig
+  batches + 12 tx fetches through `rpcCallAny` (each up to 4 endpoints × 10 s);
+  `getLargestAccounts` alone can take 50 s. On total RPC outage the scan stalls
+  for minutes instead of degrading to UNAVAILABLE. Fix: a global deadline per check.
+- **M12 — Orca / Meteora pool vaults are never excluded from top-10.**
+  scanner.ts:2073-2085. Only `raydium` and `pumpswap` derive pool vaults; Orca
+  whirlpool / Meteora DLMM vaults holding a large share count as whales. (BONK's
+  live top-10 currently shows no Orca vault — token-dependent.) Fix: derive Orca /
+  Meteora vaults the same way, or verify-and-document.
+- **M13 — Inter-wallet amber rule misses a top-holder funding others.**
+  scanner.ts:1855-1875. `if (holderOwners.has(e.from)) continue` exempts senders
+  that are themselves checked holders from shared-source detection, so a
+  creator/top-holder wallet that split to 2+ other top holders never triggers
+  either amber rule. Fix: don't exempt holder senders from shared-source detection.
+- **M14 — `/rugcheck` and `/jupiter/quote` are unmetered and uncapped (open
+  relay).** worker/rugradar-proxy.js:112-137. No rate limit, no response-size cap,
+  Jupiter query string passed through untouched; a 2.5 MB BONK RugCheck report can
+  be fetched repeatedly by anyone. Fix: same per-IP limit + size cap on these routes.
+- **M15 — Rate limit is per-isolate, not per-IP; map never pruned.**
+  worker/rugradar-proxy.js:35-44. `rateBuckets` is an in-memory Map per isolate
+  (effective limit N×120/min); idle-IP entries grow unboundedly. Fix: shared store
+  (KV / Durable Objects) or at least periodic pruning.
+- **M16 — Check-badge text fails WCAG AA contrast in both themes.**
+  App.css:738-744, 772-773. White 11px/10px bold on green/amber/red/muted:
+  light green 3.3:1, light amber 3.19:1; dark green 2.28:1, dark amber 2.15:1,
+  dark red 3.76:1, dark muted 2.56:1 (needs 4.5:1). Fix: darker badge backgrounds
+  or dark text on light badge colors.
+- **M17 — Txns stat is clipped invisibly at 390px.** App.css:681-696;
+  App.tsx:1505-1519. `.stat { overflow: hidden }` + nowrap 19px `<strong>`,
+  only the price cell gets the fluid clamp: `12.3K Beli / 45.6K Jual` ≈ 200px in
+  a ~118px column — the sell count is cut off with no ellipsis or wrap. Fix: allow
+  wrap or a clamped size for the txns stat, as done for `.stat-price`.
+- **M18 — `fmtUsd` renders ultra-tiny prices as "$0".** App.tsx `fmtUsd`
+  (verbatim): `fmtUsd(1e-12) → "$0"` — the tiny-price branch caps at
+  `toFixed(10)`, so anything < 5e-11 trims to 0. Normal tiny prices are fine
+  (`$0.000002107`, `$0.0000000031`, never scientific notation). Same latent issue
+  in scanner.ts `fmtUsd`: `fmtUsd(0.000002107) → "$0.00"`, and the test script's
+  own local formatter prints BONK price as `$0.00` (misleading test output).
+  Fix: significant digits below 1e-10; a nonzero price must never render as `$0`.
+
+### LOW (post-submit)
+- **L1 — EVM guard is lowercase-only.** App.tsx:677. `raw.startsWith('0x')`
+  misses `0X…`; the base58 fallback can then scan a garbage mint. Fix:
+  case-insensitive check.
+- **L2 — Stale comment claims the scan bar is still sticky.** App.tsx:1179
+  (comment) vs App.css:825-827 (no `sticky` anywhere). Comment only.
+- **L3 — `<html lang>` never set on initial load.** App.tsx:873.
+  `document.documentElement.lang` is set only inside `switchLang`, never at mount.
+- **L4 — Stale error stays visible while typing.** App.tsx:1192-1195. `onChange`
+  clears the error only when the input becomes empty. Fix: clear `error` on any
+  input change.
+- **L5 — No retry affordance on a generic scan error.** App.tsx:1295. A failed
+  scan shows only error text; only the holders-unavailable card has a retry button.
+- **L6 — Language-switch re-scan pollutes Recents.** App.tsx:747, 877.
+  `switchLang` passes `recordHistory=false` but `runScan` unconditionally
+  re-records Recents (and rewrites `?mint=`). Fix: skip the recents write too.
+- **L7 — Share-card button has no in-progress guard.** App.tsx:956. Double-click
+  renders two canvases / two share sheets. Fix: disable while rendering/sharing.
+- **L8 — Share-card filename can be empty-symbol.** App.tsx:956-961.
+  `symbol.toLowerCase().replace(/[^a-z0-9]/g,'')` yields `rugradar--81.png` when
+  the symbol has no alphanumerics. Fix: fall back to the mint or `token`.
+- **L9 — Diff "better/worse" word only tracks the score.** App.tsx:52-53. Score
+  unchanged but top-10 worsened → line reads e.g. "top-10 ▲ 2.3%" with no
+  good/bad qualifier. (Diff itself is correct: same-mint only, deduped, pruned to 20.)
+- **L10 — Vietnamese dict has 3 keys copied verbatim from Indonesian.**
+  i18n.vi.ts:60 `statsTop10`, :64 `topHoldersHeading`, :177 `metadataTitle`;
+  i18n.pt.ts:169 `lpTitle: 'LP Burn/Lock'` untranslated English while es/ru/zh
+  translate it. Fix: translate all four.
+- **L11 — Share-card subtitle is hardcoded English in every language.**
+  App.tsx:93: `ctx.fillText('Solana Token Safety Scanner', …)` while the verdict
+  below it is translated. Fix: localized subtitle or brand-only header.
+- **L12 — Batch "Scan Semua" button is not full-width on mobile.**
+  App.css:501, :273. `.batch-actions` is a plain div and `.btn-glow` shrink-wraps,
+  so the ≤560px `.btn-primary { width: 100% }` measures against the span, not the
+  card. Fix: full width for `.batch-actions .btn-glow` on mobile.
+- **L13 — Reduced-motion handling is incomplete.** App.css:725-727 disables
+  animation only for `.result, .check, .gauge-ring, .load-spinner`; the skeleton
+  shimmer (`.sk-*`, :366-384) keeps pulsing, and App.tsx:645 calls
+  `scrollIntoView({ behavior: 'smooth' })` without checking
+  `prefers-reduced-motion`.
+- **L14 — No parameter caps on allowed RPC methods.** worker/rugradar-proxy.js:96-104.
+  `bodyText` is forwarded verbatim after only a method-name check — e.g.
+  `getSignaturesForAddress` with `limit: 1000` burns far more Helius credit per
+  request than the app ever sends. Fix: validate/clamp params (sig limit ≤100).
+- **L15 — Dead code: `.scan-bar` class with no rule + stale comment.**
+  App.tsx:1182 renders `<div className="scan-bar">`; no rule exists in App.css.
+  Related: `.batch-table` (App.css:507-518) has no overflow wrapper or
+  `table-layout: fixed`, so one long unbroken token name could push the table past
+  the card at 390px.
+- **L16 — `fmtNum` throws on null/undefined, renders "NaN".** Verbatim source:
+  `fmtNum(null)` / `fmtNum(undefined)` throw `TypeError`; `fmtNum(NaN) → "NaN"`.
+  No live crash path (App guards txns; supply is always a number) — defensive fix
+  only: return `"—"` for null/undefined/NaN.
+- **L17 — Token-2022 parse: exact 83-byte mint misreported.** scanner.ts:1301-1320.
+  `data.length === 83 && data[82] === 1` (discriminator, no TLV entries) falls
+  through to `return null` ("unavailable", warn) instead of an empty set (clean).
+- **L18 — Jupiter probe amount overflows u64 / exponential notation.**
+  scanner.ts:1438. `String(Math.max(1, Math.floor(tokens * 10 ** decimals)))` —
+  for price ≲5e-11 the amount exceeds Jupiter's u64 max, and at ≲1e-12 `String()`
+  yields `"1e+21"`. Jupiter 400s → `sellable: null` (unknown) exactly for
+  near-dead tokens where the check matters most. Fix: `BigInt` amount, clamped to u64.
+- **L19 — Zero-supply mint scores full holder points.** scanner.ts:495-499.
+  `supplyRaw > 0 ? … : 0` turns supply 0 into top-10/top-1 share 0% → 30/30.
+  Fix: treat supply 0 as unavailable (`null`, neutral 15 + 79 cap).
+- **L20 — `Promise.all` in `scanToken` leaves LP/metadata branches unguarded.**
+  scanner.ts:2172-2179. `lpCheckP` and the three `metadataDataP.then(…)` branches
+  have no `.catch`, unlike the other branches — a throw there (e.g. PDA
+  derivation) rejects the whole `Promise.all` and kills the scan. Fix: `.catch`
+  each branch.
+- **L21 — `parseLpLockers` has no seconds-range validation.** scanner.ts:1951-1970.
+  A millisecond `unlockDate` would be multiplied by 1000 again (probe:
+  `1804000000000` → year ~59000 countdown). Live RugCheck data is clean (BONK:
+  14 lockers, all int seconds, incl. 2 `streamflow`) — defensive only.
+- **L22 — Clean Token-2022 shows a CAUTION badge with 0 penalty (observation).**
+  ChokingCat is Token-2022 with no dangerous extensions; `checkToken2022` returns
+  status `warn` by design with penalty 0, score 35/35. Judgment call: keep as a
+  deliberate "Token-2022 program itself is a flag" or downgrade to INFO/pass.
+
+### Data note (not a bug)
+- BONK Streamflow unlock: one live probe read 2027-04-03T13:00:01Z (lockerCount 1);
+  another read 14 lockers with future unlock `1806757201` (≈2 Mar 2027) parsed
+  correctly. RugCheck's live locker data varies between reads (different lockers);
+  parsing itself is correct. The demo script's "~2 Mar 2027" remains valid.
+- Holder-failure fail-safe path is code-verified only (proxy was healthy for all
+  probes — could not be forced live): failure → `null` → neutral 15/30, total
+  capped at 79, UNAVAILABLE badge + retry button on the holders card.
+
+## v7.13 — fix ALL 43 audit bugs (28 Nov 2026 ~17:00–17:15 WIB, build lokal Bella)
+- User 16:51 WIB: "simpan dulu ini, aku akan coba perbaiki semua bug yang
+  ada dulu" — feature freeze stays (no new features); bug fixes only.
+  5 parallel fix agents (App.tsx / scanner.ts / summary+i18n / App.css /
+  Worker) + coordinator integration (H2 cast cleanup, L9 dedicated keys,
+  checkLpUnlocks opts). Worker redeployed separately via cf.py.
+- **Build: `npm run build` PASSES** (tsc -b + vite; rebuilt once more after
+  the L3 coordinator fix). Final bundle `index-DspnysQB.js` + CSS
+  `index-BQq-Z5hn.css`.
+- **Keyed test: BONK 81 / WIF 88 / POPCAT 88 / PYUSD 0** — identical to
+  v7.12.7. Zero score-math changes except L19 (zero-supply only, degenerate
+  mints). ChokingCat live probe 77 Waspada (bundle suspected).
+- **L22 DELIBERATELY KEPT:** clean Token-2022 still shows a CAUTION badge
+  with 0 penalty — "Token-2022 program itself is a flag", by design. Not a fix.
+
+### Per-bug status (all 43)
+- **H1 FIXED:** runScan early-returns when batchRunning; all scan controls +
+  language select disabled while batching.
+- **H2 FIXED:** secondaries run sequentially in one effect (fresh → creator
+  → transfers → LP unlocks), each passing `{isCancelled, deadlineMs: now+90s}`
+  (scanner CheckAbortOpts); fresh cut to top-5, sequential wallet paging;
+  rpcCallAny waits 2s after a 429 before the next endpoint;
+  getLargestAccounts waits 2s on 429 before retry; checkBundle /
+  checkFreshWallets / checkInterWalletTransfers / checkLpUnlocks all accept
+  opts and abort on cancellation/deadline. Worker side: 120/min limit
+  unchanged.
+- **H3 FIXED (live):** DexScreener pair URL (lowercased pair address) resolves
+  via resolvePairBaseToken on mint-not-found too — BONK pair link → Bonk 81
+  Aman, resolvedFromPair set. Genuinely missing mints still error honestly.
+- **M1 FIXED:** summaryPriceReminder appended on fatal + strong-flag paths
+  whenever verdict ≠ Aman. PYUSD summary now ends with the reminder (1×).
+  BONK (Aman) summary has 0× BY DESIGN: v7.12.3 dedup — the Aman verdict
+  text itself already says "Still DYOR", so no second DYOR line. No double
+  DYOR anywhere.
+- **M2 FIXED (+ M2b):** appendHoldersNote and the holders-card
+  holdersLostNoData line show the "(Caution)" 79-cap claim only when the
+  verdict is actually Waspada; dropped entirely on Berisiko Tinggi.
+- **M3 FIXED:** setResult(null) removed; failed re-scan preserves the good
+  result on screen (error + Rescan button shown above it).
+- **M4 FIXED:** scanInFlightRef + incrementing scanIdRef; stale completions
+  ignored; finally only clears loading for the latest scan.
+- **M5 FIXED:** batch lines deduped (exact strings after trim, first kept);
+  >10 check applies to the deduped list.
+- **M6 FIXED:** errors / batch row errors / batchError / pairNote stored as
+  codes + params, translated at render; scanner throws mapped to codes across
+  all 7 locales (unrecognised → raw shown as-is). Language switch now
+  re-translates them.
+- **M7 FIXED:** share-card name truncated by ctx.measureText width (binary
+  search, Array.from — surrogate pairs never split), max 1000px.
+- **M8 FIXED (unit):** extractMintCandidate rejects 0x… (bare/embedded),
+  requires decode to exactly 32 bytes; 88-char tx signature → null.
+- **M9 FIXED:** Token-2022 check scored:false (penalty only). Scored-check
+  max sum now 100 (was 135); scores unchanged (PYUSD still 0).
+- **M10 FIXED (live):** checkFreshWallets resolves each token account's OWNER
+  wallet first (getTokenAccountOwner), then pages the wallet's history.
+  BONK probe: {fresh:0, checked:2, unknown:3, total:5} in 2.9s. Null
+  blockTime on the oldest tx → 'unknown', never a false "fresh".
+- **M11 FIXED (code):** default deadlines — checkBundle 45s, getLargestAccounts
+  30s, secondaries 60s. Total RPC outage degrades to UNAVAILABLE.
+- **M12 FIXED (live, verified):** readOrcaPool + readMeteoraPool wired into
+  pool derivation (Orca offsets verified against @orca-so/whirlpools-client
+  v7.0.0 getWhirlpoolDecoder — first guess was off by 2, codec caught it;
+  Meteora offsets from @meteora-ag/dlmm v1.9.14 IDL + anchor cross-check,
+  with a consecutive-pubkey fallback and both DLMM program IDs). BONK's top
+  pair IS Orca; its vault (4dmvFGeQH2eqa3ktNHMgm4wZ8vuTukBiK9M7gxW5oR9F,
+  72.5B BONK ≈ 0.08%) is NOT in the raw largest-accounts list, so no vault
+  was in BONK's top-10 to exclude — the derivation path demonstrably ran and
+  verified the vault. BONK 81 unaffected. (The raw-top-10 address missing
+  from the result is a CEX ATA, 8.35T BONK ≈ 9.5% — exchange exclusion, not
+  vault.) LP mint set to zero address for Orca/Meteora (no fungible LP mint;
+  LP check stays `na`, as before).
+- **M13 FIXED (live):** holder-sender exemption removed; BONK probe still
+  neutral (suspicious:false, involved 5/5, shared source adTD…b9fW, not
+  creator, Nov 2026 — outside the 7-day window).
+- **M14 FIXED (Worker, live):** /rugcheck + /jupiter/quote share the 120/min
+  per-IP limiter; response caps (RugCheck 5 MB, Jupiter 1 MB); Jupiter query
+  allowlisted to inputMint/outputMint/amount/slippageBps, validated and
+  rebuilt from clean values.
+- **M15 FIXED (Worker):** rateBuckets pruned — once-per-minute sweep drops
+  buckets older than the 60s window + 10,000-entry hard cap (oldest evicted).
+  No KV / Durable Objects.
+- **M16 FIXED:** badge backgrounds darkened (pass #15803d, warn #b45309,
+  fail #b91c1c, info/mid #475569) — all ≥4.5:1 WCAG AA in both themes
+  (5.02/5.02/6.47/7.58:1). Same fix on sub-finding mini-badges.
+- **M17 FIXED:** txns stat wraps (white-space normal + same fluid clamp as
+  .stat-price) instead of clipping the sell count at 390px.
+- **M18 FIXED (unit):** scanner + App fmtUsd use significant digits below
+  1e-10 — fmtUsd(1e-12) → "$0.000000000001", fmtUsd(0.000002107) →
+  "$0.000002107"; nonzero never renders "$0"; normal prices byte-identical.
+- **L1 FIXED:** EVM guard case-insensitive (0x/0X).
+- **L2 FIXED:** stale "scan bar is sticky" comment removed.
+- **L3 FIXED (coordinator catch — no agent had it in scope; verified
+  unfixed in App.tsx, then fixed):** `<html lang>` is now set by a mount
+  effect in App.tsx (runs on mount and on every language change), not only
+  inside switchLang. The index.html shell script already sets it before
+  first paint from the stored preference; React now owns the attribute from
+  mount on.
+- **L4 FIXED:** input onChange clears error on any change.
+- **L5 FIXED:** generic scan error now shows a Rescan button (same pattern
+  as the holders card).
+- **L6 FIXED:** Recents write + ?mint= rewrite skipped when recordHistory is
+  false (language-switch re-scan).
+- **L7 FIXED:** shareCardBusy guard disables the share button while
+  rendering/sharing.
+- **L8 FIXED:** share-card filename falls back to first 10 alphanumerics of
+  the mint, then 'token' (rugradar-DezXAZ8z7P-81.png).
+- **L9 FIXED:** top-10-only diff moves now use dedicated keys
+  historyTop10Better/historyTop10Worse in all 7 locales ("top-10 share
+  improved/worsened"), not the score wording.
+- **L10 FIXED:** vi statsTop10 'Top 10 Người Nắm Giữ', topHoldersHeading
+  'Top 5 Người Nắm Giữ', metadataTitle 'Metadata của Token'; pt lpTitle
+  'LP Queimado/Bloqueado'.
+- **L11 FIXED:** share-card subtitle is the localized t.tagline (EN: "Check
+  a Solana memecoin's safety before you buy — a 0–100 safety score in
+  seconds."), font shrunk 28→20px to fit the canvas.
+- **L12 FIXED:** .batch-actions .btn-glow full width on ≤560px — "Scan
+  Semua" is full-width on mobile.
+- **L13 FIXED:** skeleton shimmer (.sk-gauge/.sk-line/.sk-stat) included in
+  the prefers-reduced-motion block; scrollIntoView uses behavior:'auto'
+  under reduced motion.
+- **L14 FIXED (Worker, live):** /rpc params validated/clamped per method
+  (sig limit ≤100 — live probe: limit:1000 → exactly 100 returned; string
+  limit → 400; bad encoding → 400; getSlot → 403; extra Jupiter param →
+  400; amount=1e+21 → 400). Forwarded body rebuilt from clamped params.
+- **L15 FIXED:** batch table wrapped in a horizontal-scroll div +
+  table-layout:fixed, name column 55% + word-break. No .scan-bar rule
+  invented.
+- **L16 FIXED (unit):** fmtNum(null/undefined/NaN) → "—".
+- **L17 FIXED (unit):** exact 83-byte mint (data[82]===1, no TLV) returns an
+  empty extension set (clean), not null/unavailable.
+- **L18 FIXED (code):** Jupiter probe amount is BigInt, clamped to u64 max;
+  non-finite → u64 max. No "1e+21" amounts. (Live: ChokingCat probe
+  returned a real sellable:true answer.)
+- **L19 FIXED (code — the one allowed score-math change):** readTopHolders
+  throws on supplyRaw <= 0 → holders unavailable → neutral 15/30 + 79 cap.
+  Only degenerate zero-supply mints affected. No zero-supply mint was found
+  on mainnet to exercise live.
+- **L20 FIXED:** lpCheckP + all three metadataDataP.then(…) branches now
+  have .catch fallbacks in the Promise.all.
+- **L21 FIXED (unit):** parseLpLockers validates seconds range — ms values
+  (≥1e12) used as-is, absurd values → null. 1804000000000 → 2027-03-02;
+  1806757201 → 2027-04-03.
+- **L22 KEPT DELIBERATELY:** clean Token-2022 keeps its CAUTION badge (0
+  penalty) — "Token-2022 program itself is a flag". Not a bug fix.
+
+### Data-note correction (from the v7.13 probes)
+- `1806757201` is **2027-04-03**, not "~2 Mar 2027" as the sweep section
+  labelled it. The ~2 Mar 2027 date belongs to the millisecond locker
+  `1804000000000` (= 2027-03-02). Both are real RugCheck lockers; the parser
+  is correct in both cases. The demo script's "~2 Mar 2027" remains valid.
+
+### Worker redeploy (v7.13)
+- Worker `rugradar-proxy` redeployed via cf.py: HTTP 200, new etag
+  `0135743f9ee58ff509b04f00c519c5e918f923ec1a28cf39bca4ae877295dff0`.
+  Live-verified: getTokenSupply ✓, sig-limit clamp ✓, 400s ✓, getSlot 403 ✓,
+  RugCheck BONK 200 (2,554,019 bytes) ✓, Jupiter quote ✓, unknown route 404 ✓.
+  **429 NOT observed live** — the sandbox egress IP rotates per request, so
+  the per-IP bucket never accumulates from there; limiter code path unchanged
+  except sweep/cap, all three routes call the same rateLimited(). A 429 check
+  from a stable single IP would confirm it.
+
+### i18n parity after v7.13
+- All 7 locales: exactly **263 keys**, identical sets, 0 missing/extra
+  (probe count of rendered string keys per locale; the sweep's 267 used a
+  different counting method — the sets match under either count, and tsc
+  enforces key parity at build time).
+
+### Visible changes in the English desktop UI (demo-video v5 impact)
+- Footer: **v7.13**.
+- Check badges (AMAN/WASPADA/BERISIKO/INFO) are a darker shade of the same
+  hue in both themes; verdict colors on card borders, gauge, hero unchanged.
+- Re-scan keeps the previous score visible under the loading checklist; on
+  error it stays visible with the error + new Rescan button above it.
+- Generic scan errors show a Rescan button.
+- Share card subtitle is now the localized tagline, not "Solana Token Safety
+  Scanner".
+- PYUSD (score 0) summary gains the reminder sentence at the end; Aman
+  summaries unchanged (DYOR stays in the verdict text only).
+- History diff for a top-10-only move now reads "top-10 share
+  improved/worsened".
+- Ultra-tiny prices no longer render as "$0"; all other prices identical.
+- Errors/pair notes now follow language switches.
+- Batch table: name column fixed 55%; at 390px it scrolls horizontally.
+- Fresh-wallet card now covers top 5 holders (was 10) with real wallet ages
+  — fewer false "fresh" flags on old wallets.
+- Token-2022 card no longer inflates the scored-cards sum (max 100, was 135);
+  scores unchanged.

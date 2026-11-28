@@ -258,6 +258,10 @@ export interface Dict {
   // never leaves a beginner guessing whether up is good or bad.
   historyBetter: string;
   historyWorse: string;
+  // v7.13 (L9) — direction word for a top-10-only diff move, so the line
+  // never claims the *score* moved when only the top-10 share did.
+  historyTop10Better: string;
+  historyTop10Worse: string;
   // v7.12 — batch scan
   batchTitle: string;
   batchPlaceholder: string;
@@ -598,6 +602,8 @@ export const STRINGS: Record<Lang, Dict> = {
     historyVerdictChanged: (from, to) => `Verdict berubah: ${from} → ${to}`,
     historyBetter: 'skor membaik',
     historyWorse: 'skor memburuk',
+    historyTop10Better: 'porsi top-10 membaik',
+    historyTop10Worse: 'porsi top-10 memburuk',
     batchTitle: 'Scan Banyak Token',
     batchPlaceholder: 'Satu alamat mint per baris (maks 10)',
     batchScanButton: 'Scan Semua',
@@ -945,6 +951,8 @@ export const STRINGS: Record<Lang, Dict> = {
     historyVerdictChanged: (from, to) => `Verdict changed: ${from} → ${to}`,
     historyBetter: 'score improved',
     historyWorse: 'score worsened',
+    historyTop10Better: 'top-10 share improved',
+    historyTop10Worse: 'top-10 share worsened',
     batchTitle: 'Batch Scan',
     batchPlaceholder: 'One mint address per line (max 10)',
     batchScanButton: 'Scan All',

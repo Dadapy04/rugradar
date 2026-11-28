@@ -235,6 +235,8 @@ export const zh: Dict = {
   historyVerdictChanged: (from, to) => `结论变化：${from} → ${to}`,
   historyBetter: '评分上升',
   historyWorse: '评分下降',
+  historyTop10Better: '前十名持仓占比改善',
+  historyTop10Worse: '前十名持仓占比恶化',
   batchTitle: '批量扫描',
   batchPlaceholder: '每行一个 Mint 地址（最多 10 个）',
   batchScanButton: '全部扫描',
