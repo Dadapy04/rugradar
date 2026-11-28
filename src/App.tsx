@@ -1168,6 +1168,7 @@ export default function App() {
               )}
             </div>
           </div>
+          <span className="btn-glow">
           <button
             className="btn-primary"
             onClick={() => void runScan(mint)}
@@ -1175,6 +1176,7 @@ export default function App() {
           >
             {loading ? t.scanningButton : t.scanButton}
           </button>
+          </span>
           </div>
         </div>
 
@@ -1658,6 +1660,7 @@ export default function App() {
           placeholder={t.batchPlaceholder}
         />
         <div className="batch-actions">
+          <span className="btn-glow">
           <button
             type="button"
             className="btn-primary"
@@ -1668,6 +1671,7 @@ export default function App() {
               ? t.batchScanning(batchProgress.done, batchProgress.total)
               : t.batchScanButton}
           </button>
+          </span>
         </div>
         {batchError && <p className="error">{batchError}</p>}
         {batchRows.length > 0 && (
@@ -1739,7 +1743,7 @@ export default function App() {
         </p>
         <p>{t.footerDisclaimer}</p>
         {/* v7.10 (B9) — build label, so a bug report can be tied to a version. */}
-        <p className="version">RugRadar v7.12.1</p>
+        <p className="version">RugRadar v7.12.2</p>
       </footer>
 
       {methodOpen && (
