@@ -3,11 +3,13 @@
 Target: ≤ 90 detik (maks portal 3 menit). Narasi Bahasa INGGRIS
 (Yukka 27 Nov ~21:55: "ini nanti pake bahasa inggris aja"),
 suara `avocado_v2:MAI_01` (Aria, perempuan), speed 110.
-Audio: `demo-narration-en-aria-v2.mp3` (dibangkitkan 27 Nov 2026).
+Audio: `demo-narration-en-aria-v2.mp3` (narasi utama, dibangkitkan 27 Nov 2026)
++ `demo-narration-en-aria-v3-closing.mp3` (penutup roadmap, 28 Nov 2026).
 UI direkam dalam Bahasa Inggris (toggle EN sebelum scan).
-Rekam SETELAH v7.12 live + terverifikasi (batch scan adalah shot kunci;
-narasi yang sudah direkam TIDAK menyebut batch scan — shot batch scan
-jalan visual-only di atas musik penutup).
+Rekam SETELAH v7.12.4 live + terverifikasi.
+**Penutup video (15 detik terakhir) menjawab proaktif kelemahan terbesar
+— "kenapa trader mau repot buka web?": jawabannya langsung di video,
+rencana Telegram Bot di atas Cloudflare Worker yang sudah berjalan.**
 
 ## Naskah narasi (English)
 
@@ -20,6 +22,16 @@ Permanent Delegate is still active — the developer can freeze tokens in
 anyone's wallet. RugRadar also reads bundle patterns: if many wallets
 buy at the exact same second, you get warned right away. Two tokens, two
 verdicts. RugRadar: the three-second risk translator for Solana memecoins.
+
+## Naskah penutup — 15 detik terakhir (audio terpisah v3-closing)
+
+> And next, RugRadar comes to you: a Telegram bot that answers right
+> inside your group — no browser needed — and a browser extension, both
+> running on the same engine that already powers this scan.
+
+Kenapa dipisah: narasi utama (v2, 38,1 detik) mengiringi shot 1–4; penutup
+ini dipasang di atas shot 6 (80–90 detik) supaya jawaban atas "kenapa
+harus buka web?" mendarat tepat di akhir video — bukan di tengah.
 
 ## Shot list
 
@@ -38,14 +50,19 @@ verdicts. RugRadar: the three-second risk translator for Solana memecoins.
    satu per baris), tekan Scan → tabel terisi berurutan: BONK 81 Aman,
    WIF 88 Aman, POPCAT 88 Aman, PYUSD 0 Berisiko Tinggi. Klik satu
    baris → hasil lengkap token itu. Visual-only, tanpa narasi.
-6. (80–90 dtk) Kartu penutup: "RugRadar — 3-Second Solana Memecoin
-   Risk Translator" + https://dadapy04.github.io/rugradar/
+6. (80–90 dtk) **Penutup roadmap — jawaban proaktif atas kelemahan
+   terbesar (v7.12.4)** — kartu penutup: "RugRadar — 3-Second Solana
+   Memecoin Risk Translator" + https://dadapy04.github.io/rugradar/ +
+   dua baris roadmap: "Next: Telegram Bot — the score, inside your group.
+   No browser needed." + "Browser Extension — coming soon." Narasi
+   penutup v3-closing diputar di atas shot ini.
 
 ## Perakitan
 
 - Rekam layar dist lokal (atau demo live) via Playwright video capture;
   API eksternal lewat egress forwarder 127.0.0.1:18080.
-- Gabung klip + narasi dengan ffmpeg; output:
+- Gabung klip + narasi utama (v2) + narasi penutup (v3-closing, pasang di
+  atas shot 6, 80–90 detik) dengan ffmpeg; output:
   `submission-assets/rugradar-demo-video.mp4`.
 - Upload: Unlisted ke channel YouTube @SemestaKita-000 (asumsi kerja;
   konfirmasi rute saat eksekusi) → URL dipakai untuk Step 3 form.

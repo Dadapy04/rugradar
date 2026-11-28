@@ -153,16 +153,26 @@ address: `AdyPd6VJETKJTotVTYPPKBZKB3CeVaUpqiC3L9FKPNeR`.
 
 ## Roadmap (setelah hackathon)
 
-Mesin analisisnya sudah terisolasi di Cloudflare Worker, jadi saluran baru
-tinggal menyambung ke API yang sama — tanpa mengubah mesin skornya:
+Setiap item menjawab satu kelemahan yang kami akui secara terbuka:
 
-1. **Telegram Group Bot** — bot masuk ke grup call/sinyal; begitu ada
-   yang melempar contract address, bot membalas otomatis dalam ~2 detik
-   berisi skor + vonis 2 kalimat + tautan laporan detail
-   (`rugradar/?mint=...`). Trader tidak perlu pindah aplikasi.
-2. **Browser Extension** — peringatan otomatis saat contract address
-   muncul di X atau Telegram Web.
-3. **Pemantauan real-time** — setelah ada pengguna harian yang rutin
-   memakai inti produk (bukan sebelum itu).
+1. **Telegram Group Bot** — menjawab gesekan terbesar: trader yang lagi FOMO
+   tidak mau keluar dari Telegram cuma buat buka browser. Bot masuk ke grup
+   call/sinyal; begitu ada yang melempar contract address, bot membalas
+   otomatis dalam ~2 detik berisi skor + vonis 2 kalimat + tautan laporan
+   detail (`rugradar/?mint=...`). Trader tidak perlu pindah aplikasi.
+2. **Browser Extension** — jawaban yang sama untuk trader yang hidup di
+   DexScreener/Pump.fun: peringatan otomatis saat contract address muncul
+   di X atau Telegram Web.
+3. **Pemantauan real-time + alert** — menjawab "snapshot, bukan pelindung":
+   bot mengawasi token yang sudah di-scan dan memperingatkan saat kondisi
+   memburuk (unlock LP, perubahan holder, tarikan likuiditas).
+4. **Dev Track Record** — menjawab rugger serial yang mendanai 15–20 dompet
+   dari CEX sebelum launch: riwayat token sebelumnya dari satu creator +
+   visualisasi klaster. Sudah dirancang; terhambat akses data (Helius
+   menolak method-nya dengan 403, pump.fun memblokir) — butuh izin method
+   read-only di Worker.
+
+Mesin analisisnya sudah terisolasi di Cloudflare Worker, jadi saluran baru
+tinggal menyambung ke API yang sama — tanpa mengubah mesin skornya.
 
 Lihat `TEST-RESULTS.md` untuk hasil tes kunci per versi.
