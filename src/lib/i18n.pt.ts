@@ -246,6 +246,13 @@ export const pt: Dict = {
   freshLine: (fresh, total) => `${fresh} de ${total} holders principais são carteiras novas (<7 dias)`,
   freshNone: 'Nenhum holder principal é uma carteira nova (<7 dias)',
   freshUnknown: (n) => `${n} carteiras não puderam ser verificadas`,
+  // v7.12.5 — post-launch inter-wallet transfers
+  transfersChecking: 'Verificando transferências entre carteiras…',
+  transfersLine: (involved, total) =>
+    `${involved} dos ${total} maiores holders moveram tokens entre carteiras após o lançamento`,
+  transfersNone: 'Nenhuma transferência entre carteiras detectada entre os 5 maiores holders',
+  transfersUnavailable: 'Não foi possível verificar as transferências entre carteiras',
+  transfersSharedSource: 'fonte compartilhada',
   lpUnlockTitle: 'Desbloqueio de LP',
   lpUnlockWarning: (days, date) => `O LP desbloqueia em ${days} dias (${date})`,
   updatedJustNow: 'Atualizado agora mesmo',

@@ -246,6 +246,13 @@ export const es: Dict = {
   freshLine: (fresh, total) => `${fresh} de ${total} holders principales son billeteras nuevas (<7 días)`,
   freshNone: 'Ningún holder principal es una billetera nueva (<7 días)',
   freshUnknown: (n) => `${n} billeteras no se pudieron revisar`,
+  // v7.12.5 — post-launch inter-wallet transfers
+  transfersChecking: 'Revisando transferencias entre billeteras…',
+  transfersLine: (involved, total) =>
+    `${involved} de los ${total} holders principales movieron tokens entre billeteras tras el lanzamiento`,
+  transfersNone: 'No se detectaron transferencias entre billeteras entre los 5 holders principales',
+  transfersUnavailable: 'No se pudieron revisar las transferencias entre billeteras',
+  transfersSharedSource: 'fuente compartida',
   lpUnlockTitle: 'Desbloqueo de LP',
   lpUnlockWarning: (days, date) => `El LP se desbloquea en ${days} días (${date})`,
   updatedJustNow: 'Actualizado hace un momento',

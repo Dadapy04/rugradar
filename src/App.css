@@ -751,6 +751,9 @@ a:focus-visible {
 .check-lost { margin: 4px 0; font-size: 13px; font-weight: 700; color: var(--amber-strong); }
 .check-expl { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
 .check-note { margin: 8px 0 0; font-size: 12px; color: var(--faint); }
+/* v7.12.5 — concrete from → to examples under the inter-wallet line. */
+.transfer-examples { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 2px; }
+.transfer-examples code { font-size: 12px; color: var(--text-3); background: var(--surface-2); padding: 2px 6px; border-radius: 6px; }
 
 .top-holders { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 10px; }
 .top-holders > strong { font-size: 13px; color: var(--text-3); }

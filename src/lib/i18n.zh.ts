@@ -246,6 +246,12 @@ export const zh: Dict = {
   freshLine: (fresh, total) => `${total} 个主要持币者中有 ${fresh} 个是新钱包（<7 天）`,
   freshNone: '没有主要持币者是新钱包（<7 天）',
   freshUnknown: (n) => `有 ${n} 个钱包无法检查`,
+  // v7.12.5 — post-launch inter-wallet transfers
+  transfersChecking: '正在检查钱包间转账…',
+  transfersLine: (involved, total) => `前 ${total} 大持币者中有 ${involved} 个在上线后转移了代币`,
+  transfersNone: '在前 5 大持币者中未检测到钱包间转账',
+  transfersUnavailable: '无法检查钱包间转账',
+  transfersSharedSource: '共同来源',
   lpUnlockTitle: 'LP 解锁',
   lpUnlockWarning: (days, date) => `LP 将在 ${days} 天后解锁（${date}）`,
   updatedJustNow: '刚刚更新',

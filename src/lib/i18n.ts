@@ -265,6 +265,12 @@ export interface Dict {
   freshLine: (fresh: string, total: string) => string;
   freshNone: string;
   freshUnknown: (n: string) => string;
+  // v7.12.5 — post-launch inter-wallet transfers (secondary check)
+  transfersChecking: string;
+  transfersLine: (involved: string, total: string) => string;
+  transfersNone: string;
+  transfersUnavailable: string;
+  transfersSharedSource: string;
   // v7.12 — LP unlock countdown (secondary check)
   lpUnlockTitle: string;
   lpUnlockWarning: (days: string, date: string) => string;
@@ -579,6 +585,13 @@ export const STRINGS: Record<Lang, Dict> = {
     freshLine: (fresh, total) => `${fresh} dari ${total} holder utama adalah dompet baru (<7 hari)`,
     freshNone: 'Tidak ada holder utama yang dompetnya baru (<7 hari)',
     freshUnknown: (n) => `${n} dompet tidak dapat diperiksa`,
+    // v7.12.5 — transfer antar-dompet pasca-peluncuran
+    transfersChecking: 'Memeriksa transfer antar-dompet…',
+    transfersLine: (involved, total) =>
+      `${involved} dari ${total} holder teratas memindahkan token antar-dompet setelah peluncuran`,
+    transfersNone: 'Tidak ada transfer antar-dompet terdeteksi di 5 holder teratas',
+    transfersUnavailable: 'Transfer antar-dompet tidak dapat diperiksa',
+    transfersSharedSource: 'sumber bersama',
     lpUnlockTitle: 'LP Unlock',
     lpUnlockWarning: (days, date) => `LP unlock dalam ${days} hari (${date})`,
     updatedJustNow: 'Diperbarui baru saja',
@@ -906,6 +919,13 @@ export const STRINGS: Record<Lang, Dict> = {
     freshLine: (fresh, total) => `${fresh} of ${total} top holders are fresh wallets (<7 days)`,
     freshNone: 'No top holder is a fresh wallet (<7 days)',
     freshUnknown: (n) => `${n} wallets could not be checked`,
+    // v7.12.5 — post-launch inter-wallet transfers
+    transfersChecking: 'Checking inter-wallet transfers…',
+    transfersLine: (involved, total) =>
+      `${involved} of the top ${total} holders moved tokens between wallets after launch`,
+    transfersNone: 'No inter-wallet transfers detected among the top 5 holders',
+    transfersUnavailable: 'Inter-wallet transfers could not be checked',
+    transfersSharedSource: 'shared source',
     lpUnlockTitle: 'LP Unlock',
     lpUnlockWarning: (days, date) => `LP unlocks in ${days} days (${date})`,
     updatedJustNow: 'Updated just now',

@@ -1635,6 +1635,225 @@ export async function checkFreshWallets(
   return { fresh, checked, unknown, total: addresses.length };
 }
 
+/** One inter-wallet transfer of the scanned mint (owner → owner). */
+export interface InterWalletTransfer {
+  from: string;
+  to: string;
+  /** True when `from` funded 2+ of the checked top holders — the
+   *  shared-source pattern behind a slow-split cluster. */
+  sharedSource: boolean;
+}
+
+export interface InterWalletResult {
+  /** Distinct checked holders appearing in a transfer (sender or receiver). */
+  involved: number;
+  /** Holders whose history could be read (sig list fetched). */
+  checked: number;
+  /** Holders whose history could not be read at all. */
+  unknown: number;
+  total: number;
+  /** Up to 3 concrete edges, shared-source edges first. */
+  examples: InterWalletTransfer[];
+}
+
+/** v7.12.5 — post-launch inter-wallet transfers (wallet clustering,
+ *  limited scope, secondary step: runs AFTER the main score renders,
+ *  never blocks the scan, informational only, never changes the score).
+ *  The v7.6 bundle check only sees simultaneous buys AT launch; this
+ *  covers the slow-split pattern: a top holder quietly moving the token
+ *  to other wallets after launch so the split evades the Top Holders
+ *  radar.
+ *
+ *  Method: for each of the top-5 holder TOKEN ACCOUNTS (already
+ *  CEX/pool-vault/burn-filtered by readTopHolders), read its 10 most
+ *  recent signatures, fetch those transactions (jsonParsed), and look
+ *  for TOP-LEVEL token-program `transfer` / `transferChecked`
+ *  instructions of this mint involving that account. A genuine
+ *  wallet-to-wallet transfer is a top-level token instruction; swaps
+ *  move tokens via CPI (inner instructions under the AMM/aggregator
+ *  program), so buying from a pool never looks like a split — no
+ *  program denylist needed. Owners come from the transaction's token
+ *  balance entries (account → owner).
+ *  Only transactions at/after `sinceMs` (pair creation, when known)
+ *  count, so pre-launch funding is not mistaken for post-launch splits.
+ *  A sender that funded 2+ checked holders is flagged as a shared
+ *  source.
+ *  Cost: 5 holders × (1 sig call + ≤10 tx calls) ≈ 55 calls worst case,
+ *  holders 2 at a time, tx fetches in batches of 3 — inside the proxy's
+ *  120 req/min limit. Returns null when nothing could be read. */
+export async function checkInterWalletTransfers(
+  mint: string,
+  holderAccounts: string[],
+  sinceMs: number | null,
+): Promise<InterWalletResult | null> {
+  type BalanceEntry = {
+    accountIndex?: number;
+    mint: string;
+    owner: string;
+    uiTokenAmount: { amount: string };
+  };
+  type TxParsed = {
+    blockTime?: number | null;
+    transaction?: {
+      message?: {
+        accountKeys?: ({ pubkey: string } | string)[];
+        instructions?: {
+          programId: string;
+          parsed?: {
+            type?: string;
+            info?: { mint?: string; source?: string; destination?: string };
+          };
+        }[];
+      };
+    };
+    meta?: {
+      err?: unknown;
+      preTokenBalances?: BalanceEntry[];
+      postTokenBalances?: BalanceEntry[];
+    } | null;
+  };
+
+  const edges = new Map<string, InterWalletTransfer>();
+  // Owner of each checked holder account (resolved from the balance
+  // entries of its own transactions — a token account's owner is the
+  // wallet that holds it).
+  const ownerOfHolder = new Map<string, string>();
+  let checked = 0;
+  let unknown = 0;
+
+  // Per-holder: sig list → txs → owner deltas → edges. Holders 2 at a
+  // time so the burst stays small; tx fetches in batches of 3.
+  async function checkHolder(account: string): Promise<void> {
+    let sigs: { signature: string }[];
+    try {
+      sigs =
+        (await rpcCallAny<{ signature: string }[]>('getSignaturesForAddress', [
+          account,
+          { limit: 10, commitment: 'confirmed' },
+        ])) ?? [];
+    } catch {
+      unknown++;
+      return;
+    }
+    checked++;
+    if (sigs.length === 0) return;
+    const txs: TxParsed[] = [];
+    for (let i = 0; i < sigs.length; i += 3) {
+      const results = await Promise.all(
+        sigs.slice(i, i + 3).map((s) =>
+          rpcCallAny<TxParsed>('getTransaction', [
+            s.signature,
+            {
+              encoding: 'jsonParsed',
+              maxSupportedTransactionVersion: 1,
+              commitment: 'confirmed',
+            },
+          ]).catch(() => null),
+        ),
+      );
+      for (const r of results) if (r) txs.push(r);
+    }
+    // A genuine wallet-to-wallet transfer is a TOP-LEVEL token-program
+    // `transfer` / `transferChecked` instruction of this mint involving
+    // this holder account. Swaps move tokens via CPI (inner instructions
+    // under the AMM/aggregator program), so a buy from a pool never
+    // looks like a split. Owners come from the tx's token balances.
+    const TOKEN_PROGRAMS = new Set([
+      'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // SPL Token
+      'TokenzQdBNbLqP5VEhdkAS6EPFlC1PHnBqCXEpPxuEb', // Token-2022
+    ]);
+    for (const tx of txs) {
+      if (tx.meta?.err) continue; // failed tx changed no balance
+      if (
+        sinceMs != null &&
+        tx.blockTime != null &&
+        tx.blockTime * 1000 < sinceMs
+      )
+        continue; // pre-launch — funding, not a post-launch split
+      const keys = tx.transaction?.message?.accountKeys ?? [];
+      const accountOf = (idx: number | undefined): string | null => {
+        if (idx == null) return null;
+        const key = keys[idx];
+        if (key == null) return null;
+        return typeof key === 'string' ? key : (key.pubkey ?? null);
+      };
+      // Token account → owner, from this mint's balance entries.
+      const ownerOf = new Map<string, string>();
+      for (const b of [
+        ...(tx.meta?.preTokenBalances ?? []),
+        ...(tx.meta?.postTokenBalances ?? []),
+      ]) {
+        if (b.mint !== mint) continue;
+        const acct = accountOf(b.accountIndex);
+        if (acct != null) ownerOf.set(acct, b.owner);
+      }
+      const holderOwner = ownerOf.get(account);
+      if (holderOwner) ownerOfHolder.set(account, holderOwner);
+      for (const ix of tx.transaction?.message?.instructions ?? []) {
+        if (!TOKEN_PROGRAMS.has(ix.programId)) continue;
+        const parsed = ix.parsed;
+        if (
+          !parsed ||
+          (parsed.type !== 'transfer' && parsed.type !== 'transferChecked')
+        )
+          continue;
+        const info = parsed.info ?? {};
+        // `transfer` (legacy) carries no mint — the holder-account match
+        // below already proves it is this mint's token account.
+        if (parsed.type === 'transferChecked' && info.mint !== mint) continue;
+        const source = info.source;
+        const dest = info.destination;
+        if (typeof source !== 'string' || typeof dest !== 'string') continue;
+        if (source !== account && dest !== account) continue;
+        const from = ownerOf.get(source);
+        const to = ownerOf.get(dest);
+        if (!from || !to || from === to) continue; // unknown / self-transfer
+        const key = `${from}>${to}`;
+        if (!edges.has(key))
+          edges.set(key, { from, to, sharedSource: false });
+      }
+    }
+  }
+
+  for (let i = 0; i < holderAccounts.length; i += 2) {
+    await Promise.all(holderAccounts.slice(i, i + 2).map((a) => checkHolder(a)));
+  }
+  if (checked === 0) return null;
+
+  // Shared source: one sender (not a checked holder's own wallet) that
+  // funded 2+ distinct checked holder accounts.
+  const holderOwners = new Set(ownerOfHolder.values());
+  const fundedBy = new Map<string, Set<string>>();
+  for (const e of edges.values()) {
+    if (holderOwners.has(e.from)) continue;
+    const set = fundedBy.get(e.from) ?? new Set<string>();
+    for (const [acct, owner] of ownerOfHolder) {
+      if (owner === e.to) set.add(acct);
+    }
+    fundedBy.set(e.from, set);
+  }
+  for (const e of edges.values()) {
+    if ((fundedBy.get(e.from)?.size ?? 0) >= 2) e.sharedSource = true;
+  }
+  // Distinct checked holder accounts appearing in an edge.
+  const involvedAccounts = new Set<string>();
+  for (const e of edges.values()) {
+    for (const [acct, owner] of ownerOfHolder) {
+      if (owner === e.from || owner === e.to) involvedAccounts.add(acct);
+    }
+  }
+  const sorted = [...edges.values()].sort(
+    (a, b) => Number(b.sharedSource) - Number(a.sharedSource),
+  );
+  return {
+    involved: involvedAccounts.size,
+    checked,
+    unknown,
+    total: holderAccounts.length,
+    examples: sorted.slice(0, 3),
+  };
+}
+
 /** v7.12 — LP unlock countdown: pure parser for a RugCheck report's
  *  `lockers` map. Returns the NEAREST future unlock (unlockDate is a
  *  unix-seconds timestamp). unlockDate 0 = no unlock date (permanent

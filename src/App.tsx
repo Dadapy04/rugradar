@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { scanToken, checkFreshWallets, checkLpUnlocks, fmtPct, extractMintCandidate, BASE58_RE, type CheckResult, type ScanResult, type Verdict } from './lib/scanner';
+import { scanToken, checkFreshWallets, checkInterWalletTransfers, checkLpUnlocks, fmtPct, extractMintCandidate, BASE58_RE, type CheckResult, type InterWalletResult, type ScanResult, type Verdict } from './lib/scanner';
 import { buildRiskSummary } from './lib/summary';
 import { LANGS, LANG_NAMES, LANG_STORAGE_KEY, LOCALES, STRINGS, detectLang, type Dict, type Lang } from './lib/i18n';
 import './App.css';
@@ -453,6 +453,11 @@ export default function App() {
   const [freshWallets, setFreshWallets] = useState<
     null | 'checking' | { fresh: number; checked: number; unknown: number; total: number }
   >(null);
+  // v7.12.5 — post-launch inter-wallet transfers (secondary step;
+  // 'unavailable' = the check ran but nothing could be read).
+  const [interWallet, setInterWallet] = useState<
+    null | 'checking' | 'unavailable' | InterWalletResult
+  >(null);
   // v7.12 — LP unlock countdown (secondary step; null = none / n/a).
   const [lpUnlock, setLpUnlock] = useState<
     null | 'checking' | { unlockAtMs: number; lockerType: string; lockerCount: number }
@@ -514,6 +519,39 @@ export default function App() {
       })
       .catch(() => {
         if (!cancelled) setFreshWallets(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [result]);
+
+  // v7.12.5 — post-launch inter-wallet transfers (secondary step):
+  // runs only AFTER a result renders, over the top-5 holder accounts.
+  // `sinceMs` is the pair creation time (from pair age), so pre-launch
+  // funding is not mistaken for post-launch splits; null when the pair
+  // age is unknown. Cancelled when a new scan starts.
+  useEffect(() => {
+    if (!result || !result.top10Holders || result.top10Holders.length === 0) {
+      setInterWallet(null);
+      return;
+    }
+    let cancelled = false;
+    setInterWallet('checking');
+    const sinceMs =
+      result.pairAgeDays != null
+        ? Date.now() - result.pairAgeDays * 86_400_000
+        : null;
+    void checkInterWalletTransfers(
+      result.mint,
+      result.top10Holders.slice(0, 5).map((h) => h.address),
+      sinceMs,
+    )
+      .then((r) => {
+        if (cancelled) return;
+        setInterWallet(r == null || r.checked === 0 ? 'unavailable' : r);
+      })
+      .catch(() => {
+        if (!cancelled) setInterWallet('unavailable');
       });
     return () => {
       cancelled = true;
@@ -1558,6 +1596,42 @@ export default function App() {
                           : ''}
                       </p>
                     )}
+                  {/* v7.12.5 — post-launch inter-wallet transfers
+                    (secondary check; ≥2 holders involved reads as a warn,
+                    with up to 3 concrete from → to examples). */}
+                  {c.id === 'holders' && interWallet === 'checking' && (
+                    <p className="check-note">{t.transfersChecking}</p>
+                  )}
+                  {c.id === 'holders' && interWallet === 'unavailable' && (
+                    <p className="check-note">{t.transfersUnavailable}</p>
+                  )}
+                  {c.id === 'holders' &&
+                    interWallet &&
+                    interWallet !== 'checking' &&
+                    interWallet !== 'unavailable' && (
+                      <div
+                        className={`check-note${interWallet.involved >= 2 ? ' fresh-warn' : ''}`}
+                      >
+                        {interWallet.involved === 0
+                          ? t.transfersNone
+                          : t.transfersLine(
+                              String(interWallet.involved),
+                              String(interWallet.total),
+                            )}
+                        {interWallet.examples.length > 0 && (
+                          <ul className="transfer-examples">
+                            {interWallet.examples.map((e) => (
+                              <li key={`${e.from}>${e.to}`}>
+                                <code>
+                                  {shortAddr(e.from)} → {shortAddr(e.to)}
+                                </code>
+                                {e.sharedSource ? ` · ${t.transfersSharedSource}` : ''}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
                   {c.id === 'bundle' && (
                     <span className="meta-links">
                       <a
@@ -1758,7 +1832,7 @@ export default function App() {
         </p>
         <p>{t.footerDisclaimer}</p>
         {/* v7.10 (B9) — build label, so a bug report can be tied to a version. */}
-        <p className="version">RugRadar v7.12.4</p>
+        <p className="version">RugRadar v7.12.5</p>
       </footer>
 
       {methodOpen && (

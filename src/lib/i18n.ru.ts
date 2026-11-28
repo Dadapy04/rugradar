@@ -241,6 +241,13 @@ export const ru: Dict = {
   freshLine: (fresh, total) => `${fresh} из ${total} топ-холдеров — новые кошельки (<7 дней)`,
   freshNone: 'Среди топ-холдеров нет новых кошельков (<7 дней)',
   freshUnknown: (n) => `Не удалось проверить кошельков: ${n}`,
+  // v7.12.5 — post-launch inter-wallet transfers
+  transfersChecking: 'Проверка переводов между кошельками…',
+  transfersLine: (involved, total) =>
+    `${involved} из ${total} крупнейших холдеров перемещали токены между кошельками после запуска`,
+  transfersNone: 'Переводов между кошельками среди топ-5 холдеров не обнаружено',
+  transfersUnavailable: 'Не удалось проверить переводы между кошельками',
+  transfersSharedSource: 'общий источник',
   lpUnlockTitle: 'Разблокировка LP',
   lpUnlockWarning: (days, date) => `Разблокировка LP через ${days} дн. (${date})`,
   updatedJustNow: 'Обновлено только что',

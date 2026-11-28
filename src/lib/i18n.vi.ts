@@ -243,6 +243,13 @@ export const vi: Dict = {
   freshLine: (fresh, total) => `${fresh} trong ${total} holder lớn nhất là ví mới (<7 ngày)`,
   freshNone: 'Không có holder lớn nào là ví mới (<7 ngày)',
   freshUnknown: (n) => `Không thể kiểm tra ${n} ví`,
+  // v7.12.5 — post-launch inter-wallet transfers
+  transfersChecking: 'Đang kiểm tra chuyển khoản giữa các ví…',
+  transfersLine: (involved, total) =>
+    `${involved} trong số ${total} holder hàng đầu đã chuyển token giữa các ví sau khi ra mắt`,
+  transfersNone: 'Không phát hiện chuyển khoản giữa các ví trong top 5 holder',
+  transfersUnavailable: 'Không thể kiểm tra chuyển khoản giữa các ví',
+  transfersSharedSource: 'nguồn chung',
   lpUnlockTitle: 'Mở Khóa LP',
   lpUnlockWarning: (days, date) => `LP mở khóa sau ${days} ngày (${date})`,
   updatedJustNow: 'Cập nhật vừa xong',
