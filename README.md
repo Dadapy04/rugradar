@@ -166,11 +166,19 @@ Setiap item menjawab satu kelemahan yang kami akui secara terbuka:
 3. **Pemantauan real-time + alert** — menjawab "snapshot, bukan pelindung":
    bot mengawasi token yang sudah di-scan dan memperingatkan saat kondisi
    memburuk (unlock LP, perubahan holder, tarikan likuiditas).
-4. **Dev Track Record** — menjawab rugger serial yang mendanai 15–20 dompet
-   dari CEX sebelum launch: riwayat token sebelumnya dari satu creator +
-   visualisasi klaster. Sudah dirancang; terhambat akses data (Helius
-   menolak method-nya dengan 403, pump.fun memblokir) — butuh izin method
-   read-only di Worker.
+4. **Dev Track Record + pemetaan klaster** — menjawab rugger serial yang
+   mendanai 15–20 dompet dari CEX sebelum launch: riwayat token sebelumnya
+   dari satu creator + visualisasi klaster. Versi lanjutannya menangkap
+   pola yang lebih licin: dev yang memecah tokennya perlahan ke puluhan
+   dompet *setelah* peluncuran agar lolos dari radar Top Holders — jadi
+   yang dicek bukan cuma pembelian serentak di awal, tapi juga transfer
+   antar-dompet pasca-peluncuran. Sudah dirancang; terhambat akses data
+   (Helius menolak method-nya dengan 403, pump.fun memblokir) — butuh
+   izin method read-only di Worker.
+5. **Sinyal sosial & daur ulang akun** — menjawab scam yang lolos cek
+   on-chain tapi ketahuan dari luar chain: akun X yang berulang kali ganti
+   username untuk meluncurkan koin rug baru, atau tautan website/Telegram
+   yang dipakai ulang untuk proyek scam berikutnya.
 
 Mesin analisisnya sudah terisolasi di Cloudflare Worker, jadi saluran baru
 tinggal menyambung ke API yang sama — tanpa mengubah mesin skornya.
